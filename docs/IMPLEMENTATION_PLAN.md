@@ -1,30 +1,111 @@
-# Implementation Plan — Planner-owned draft
+# Implementation Plan — LAN Test Bridge v1.0
 
-Status: NOT_CONFIGURED. Requires confirmed `docs/CRITERIA.md`. Planner sets this to `Status: ACTIVE` when the Plan is written.
+Status: ACTIVE
 
-**GOALMAP is inside this Plan**, not in CRITERIA. Each Plan item must **start with GOAL**: what tangible behavior or result does the code accomplish for the user? A technology task such as “write persistence.py” is not a GOAL.
+## Technical direction
+
+**Stack:** Go — một binary, 3 vai: `bridge host` (Windows), `bridge client` (macOS),
+`bridge mcp` (macOS, MCP server stdio cho Mac agent). Build toàn bộ trên Mac;
+Windows chỉ nhận `bridge.exe` (CGO tắt), không cài runtime nào khác.
+
+**Protocol:** JSON messages over mTLS TCP, pin fingerprint sau ghép nối.
+
+**Discovery:** mDNS/DNS-SD + nhập IP thủ công.
+
+**Pairing:** Mã 6 số trên Windows, nhập trên Mac, xác thực bằng PAKE chuẩn (CPace, chép nguyên gói có license) + xác nhận khóa 2 chiều → lưu fingerprint.
+
+**UI:** Icon tray/menu bar + trang HTML nhúng mở bằng trình duyệt (chỉ localhost). Không framework UI.
+
+**Nhiều repo:** mỗi project (CAI, sau này RAI…) là một mục trong `config.json` trên Windows.
+
+**Persistence:** `config.json` (người dùng soạn) + `state.json` (app ghi). Không database.
+
+**Nguyên tắc:** Tránh over-engineering. Gate đơn giản cho phép/không cho phép.
+Không thêm cơ chế bảo mật thừa. Chi tiết: `docs/TECHNICAL_PROPOSAL.md`.
+
+---
 
 ## GOALMAP
 
-| Goal ID | Observable result | Approved CRITERIA IDs | Dependencies | Plan section | State |
-|---|---|---|---|---|---|
-| <!-- Planner populates after approved CRITERIA; never assume G-1 --> | | | | | NOT_CONFIGURED |
+### GOAL-1: Project scaffold và build system
+> CRITERIA: §2, §3, §13
 
-## Plan items
+Go module, cấu trúc thư mục, cross-compile script.
+Observable: `go build` tạo binary chạy được trên cả 2 platform.
 
-Planner reads and links full current accepted Decision sources before writing Goals/Tasks. A short summary is not a replacement for an operational solution. Decisions settled in Discussion mode live in `docs/discussions/<folder>/DEC-*.md`; link each one from the Plan item and Task it governs so work there follows it instead of re-thinking it. Planning does not require a discussion to exist.
+### GOAL-2: Transport — TLS connection, discovery, pairing
+> CRITERIA: §4
 
-### PLAN-<ID> — GOAL: <observable result to achieve>
+- Server LAN listener mặc định chạy cổng lạ ít trùng (mặc định `54823`, tránh xa 3000), configurable qua `--port`/config.
+- mDNS discovery (broadcast port đang listen) + manual `IP:port` fallback.
+- Pairing flow: short code → key exchange → identity persistence.
+- TLS encrypted connection, auto-reconnect, graceful disconnect.
 
-- **CRITERIA references:** <approved requirement IDs>
-- **Accepted Decision references (when applicable):** `Decisions:` <paths such as docs/discussions/<folder>/DEC-001-<slug>.md — links to FULL active Human-chosen domain/operational solution; include supersession status and source provenance, not a lossy paraphrase>
-- **Decision coverage/conflicts/feasibility:** <which accepted steps each Task implements; contradictory active decisions; verified vs unverified host dependencies>
-- **Current state / gap:** <verified evidence; existing projects>
-- **Implementation:** <specific bounded technical approach from approved ARCHITECTURE>
-- **Dependencies:** <goal IDs required first>
-- **Revised-scope impact (only when approved Plan changes):** <replaced Phase or whole Plan; completed work eligible for evidence-based reuse; all unfinished old Milestones/Jobs/Tasks RETIRED after actual settlement; new IDs and unchanged work identified; no automatic Git deletion>
-- **Acceptance:** <observable product behavior and relevant negative cases>
-- **Verification:** <test approach, expected real-host evidence and regression coverage>
-- **Limitations / risk / non-goals:** <approved tradeoffs>
+Observable: 2 instance LAN tìm nhau, pair trên cổng chỉ định (mặc định 54823), giao tiếp mã hóa, reconnect.
 
-After writing this Plan, Planner continues to milestones without a blanket approval stop; Human is asked only about unsettled professional/domain solutions or Small Function → Big Solution cases (see AGENTS.md main path). Approved CRITERIA changes require independent Advisor consultation at the prescribed checkpoint. Do not claim authenticated gate approval when only normal chat/manual coordination exists.
+### GOAL-3: Folder permissions
+> CRITERIA: §5
+
+- Client request quyền trên đường dẫn + capability.
+- Host Accept/Reject, edit/revoke.
+- Lưu config file.
+- Gate đơn giản: check path nằm trong thư mục được duyệt → cho phép/từ chối.
+
+Observable: request/accept/reject/revoke hoạt động.
+
+### GOAL-4: Read
+> CRITERIA: §6
+
+List, metadata, read file, read ranges. Check permission trước mỗi op.
+Observable: đọc file từ thư mục duyệt OK; ngoài scope → denied.
+
+### GOAL-5: Sync (Mac → Windows)
+> CRITERIA: §6
+
+Upload file nhỏ vào thư mục dự án. Check permission + size ≤ 5 MB.
+Ghi temp → rename. Observable: sync chính xác; > 5 MB → rejected.
+
+### GOAL-6: Fixed dev commands
+> CRITERIA: §7
+
+Registry command ID → script thật. Chạy từ repo root, capture output.
+Observable: `build` chạy thật trả output; arbitrary shell → rejected.
+
+### GOAL-7: MCP forwarding
+> CRITERIA: §8
+
+Chuyển tiếp tools của MCP server dự án qua transport thật của CAI (kiểm tra trước M3); tự mở lại phiên khi server khởi động lại.
+Observable: tool thật invoke từ Mac.
+
+### GOAL-8: Software Start/Stop
+> CRITERIA: §9
+
+Start/Stop approved executables.
+Observable: approved app start/stop OK; unapproved → rejected.
+
+### GOAL-9: Chat
+> CRITERIA: §10
+
+Bidirectional text qua TLS connection.
+Observable: gửi/nhận text 2 chiều.
+
+### GOAL-10: UI
+> CRITERIA: §11
+
+Host (Windows): tray + trang UI — status, pairing, permissions, projects, apps, chat, exit.
+Client (macOS): menu bar + trang UI — status, pairing, quyền đang có, chat, exit.
+Khung UI làm ở Milestone 1, hoàn thiện ở Milestone 4.
+Observable: UI functional theo acceptance criteria.
+
+### GOAL-11: Install scripts
+> CRITERIA: §3
+
+`install.sh` + `install.ps1` (không admin, không cài runtime). Desktop launcher.
+Observable: installer → icon → click mở app.
+
+### GOAL-12: Giao diện cho Mac agent
+> CRITERIA: §5, §6, §7, §8, §9
+
+`bridge mcp` — MCP server stdio mà Mac agent đăng ký một lần; cung cấp tool xin quyền,
+read, sync, chạy lệnh, Start/Stop, và tools chuyển tiếp từ MCP server của dự án.
+Observable: Claude Code trên Mac gọi được các tool này qua Bridge.
