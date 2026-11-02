@@ -1,6 +1,6 @@
-# Technical Proposal — LAN Test Bridge v1.0 (rev 3)
+# Technical Proposal — LAN Test Bridge v1.0 (rev 6)
 
-Status: FINAL — Critic CR PASS (`docs/reports/2026-11-02-critic-cr-technical-proposal.md`)
+Status: FINAL rev 7 — Critic CR PASS. Rev 3 receipt covers only rev 3; rev 6 was previously reviewed.
 
 ## Overview
 
@@ -176,11 +176,13 @@ mất Wi-Fi rồi có lại → tự nối lại; Thoát → process biến mấ
 - MCP server stdio tự viết tối giản: `initialize` (khai báo `tools.listChanged`), `tools/list`,
   `tools/call`, `notifications/tools/list_changed`; không cần SDK.
 - Tool cố định: `bridge_status`, `request_access`, `list_dir`, `file_info`, `read_file`, `sync_files`
-  (M3 thêm `run_command`, `command_result`; M4 thêm `app_start`, `app_stop`).
+  (M3 thêm `run_command`, `command_result`; M4 thêm `app_start`, `app_stop` và nối việc gửi chat agent vào chat text hai chiều hiện có theo Task 4.2).
+- Chat không phải capability MCP/chat mới: Criteria §10 đã duyệt gửi/nhận text, script snippets, pasted logs và Copy. MCP cần một tool `chat_send(text)` để agent dùng đúng chat Bridge hiện có, đặc biệt khi thao tác Windows bị chặn hoặc cần user làm tiếp. Tin nhắn nhiều dòng được giữ nguyên; user Windows tự Copy/chạy, Bridge không thực thi chat text.
 - Đăng ký 1 lần trong Claude Code: `claude mcp add lanbridge -- bridge mcp`.
 - **Kiểm tra trên Mac thật trong M2:** Claude Code có nhận `list_changed` không (không → hướng dẫn
   người dùng gõ `/mcp` để tải lại) và thời gian chờ tối đa của một lời gọi tool (dùng để chọn mặc định
   `wait_seconds` ở M3).
+- Task 4.2 adds `chat_send(text)` to this existing MCP interface as a caller for the existing Bridge chat, not as a separate chat capability. It uses a dedicated token-authenticated localhost endpoint, with a server-selected agent sender kind; it never routes chat text to a project MCP tool or command executor.
 
 **Kiểm chứng M2:** agent xin quyền → Accept → đọc log; đọc ngoài phạm vi, `..\`,
 junction trỏ ra ngoài → bị từ chối; sync 3 file vào repo và 1 file vào `related_dirs` đúng hash;
@@ -235,14 +237,30 @@ tắt/mở lại CAI MCP server → gọi tool lại được mà không phải 
 
 ### Task 4.2: Chat
 - Khung chat trên trang UI của cả 2 bên: gửi/nhận text, dán log, nút Copy. Chỉ giữ trong bộ nhớ phiên.
+- Nối agent Mac vào cùng chat bằng MCP `chat_send(text)` theo Task 2.4; không thêm history/store/channel riêng. Tin nhắn agent đi qua `TypeChat` hiện có. Callback phía Mac đặt một sender kind cố định (`mac_user` cho UI, `mac_agent` cho MCP), không nhận sender tùy ý trong arguments. Host yêu cầu client connected+paired, chỉ nhận sender kinds hỗ trợ và map sang nhãn UI cố định `Mac` / `Agent (Mac)`.
+- Dùng request/confirmation `TypeChat` hiện có: Host append vào session chat rồi trả tin đã gắn nhãn; Mac append bản xác nhận. MCP chỉ báo thành công sau confirmation. Timeout sau lần gửi báo delivery unknown, không tự retry; không tuyên bố exactly-once khi kết nối ngắt sau khi Host append.
+- Giữ nguyên văn bản UTF-8 nhiều dòng/special characters. Tái dùng `textContent`, CSS `white-space: pre-wrap` và Copy nguyên `message.text` hiện có; không thêm parser, nút run hay định dạng script riêng. Một giới hạn text là **8 MiB tính theo bytes** ở MCP/local endpoint/Host; local HTTP envelope có overhead cho JSON escaping. Lỗi text rỗng/quá size, chưa kết nối/chưa pair và timeout phải trả thông báo rõ. Giới hạn này không tuyên bố bảo vệ bộ nhớ trước khi protocol frame hiện hữu đọc toàn frame.
+- Không route nội dung chat vào `TypeExecStart` hoặc `TypeMCPCall`; Bridge không thực thi text nhận từ chat.
 
 ### Task 4.3: Hoàn thiện UI
-- Host: trạng thái + IP:port, ghép nối, yêu cầu quyền, danh sách quyền (sửa/thu hồi), danh sách project
-  đọc từ config (báo lỗi config nếu có), danh sách app (bật/tắt Start/Stop), lệnh đang chạy, chat, Thoát.
-- Client: trạng thái, ghép nối/nhập IP, quyền đang có, chat, hướng dẫn đăng ký `bridge mcp`, Thoát.
+- Host: trang chính là chat; Settings chứa trạng thái + IP:port, ghép nối, yêu cầu quyền, danh sách quyền (sửa/thu hồi), danh sách project đọc từ config (báo lỗi nếu có), danh sách app (bật/tắt Start/Stop), lệnh đang chạy và Thoát.
+- Client: trang chính là chat kèm trạng thái activity Bridge; Settings chứa trạng thái, ghép nối/nhập IP, quyền đang có, hướng dẫn đăng ký `bridge mcp`, cảnh báo và Thoát.
+- Cả hai vai giữ trang HTML/CSS/JS nhúng, cùng bộ điều khiển hiện có. Đưa chat thành view mặc định; nhóm toàn bộ cài đặt/kết nối/thông báo trong view Settings. Badge trên Settings chỉ đếm thông báo/yêu cầu đang chờ; chi tiết và thao tác xử lý nằm bên trong Settings. Không tạo hệ thống notification mới.
+- `internal/ui/embed/index.html` (MODIFY): thêm điều hướng Chat/Settings, chuyển các khu vực không phải chat vào Settings, giữ nguyên thao tác hiện hữu; chat là nội dung chính khi mở trang. Reuse message text render `textContent`, multiline `pre-wrap`, per-message Copy.
+- `internal/ui/web.go` (MODIFY): mở rộng `UIState` với activity MCP hiện tại/gần nhất; thêm API nội bộ `POST /api/mcp/activity` và `POST /api/mcp/chat/send`, dùng token cục bộ hiện có, xác thực method/body và phát thay đổi qua SSE. Activity và chat chỉ tồn tại trong bộ nhớ phiên; route chat đặt sender kind `mac_agent` ở phía server, không tin sender do JSON body cung cấp.
+- `internal/agentmcp/server.go` (MODIFY): thêm `chat_send(text)` vào danh sách MCP tools; callback dùng endpoint localhost riêng được xác thực, không route sang project MCP. Activity gửi tên thao tác gọn khi bắt đầu/kết thúc tool, không kèm arguments/output/log/file contents.
+- `cmd/bridge/main.go` (MODIFY): giữ gate connected+paired; chat từ UI Mac và agent dùng cùng `TypeChat` request/confirmation, với sender kind cố định từ từng callback; Host map `mac_user` thành `Mac`, `mac_agent` thành `Agent (Mac)`, từ chối sender kind khác. Duy trì history dùng chung và append Host/Mac đúng vị trí trong luồng confirmation.
+- Tạo nhãn gọn theo tool: command → `<project> · Chạy lệnh`; project tool → `<project> · <tool>`; tool Bridge còn lại → tên thao tác dễ đọc. Không đưa nguyên văn command/script arguments, output, log hoặc nội dung file vào activity; không xem `bridge_status`/notification nội bộ là task agent. Dữ liệu project rỗng → nhãn thao tác chung.
+- Nhãn chỉ mô tả MCP operation mà Bridge nhận được, không phải task title tổng quát hay đầy đủ hoạt động của Claude Code. Khi idle/không có sự kiện, UI nói rõ Bridge chưa quan sát thấy thao tác nào. Không lưu lịch sử qua phiên.
+- Không thêm IPC transport mới, quyền mới, desktop notifications, generic notification queue, system tray behavior, script parser/run button hay dependency UI; badge Settings đếm permission requests đang pending hiện có; informational MCP/config warnings không tính vào badge và vẫn đọc được trong Settings.
+- Tests: nhãn cho known/project tools, thiếu metadata, success/error/idle; `run_command` với project `CAI` và command argument đặc trưng phải tạo `CAI · Chạy lệnh` và loại command argument khỏi label; project trống dùng `Chạy lệnh`; project tool giữ `<project> · <tool>`; API sai token/method/body; UI hiển thị Settings/chat và nhãn bằng `textContent`; bảo đảm không đưa args/output vào activity; MCP `chat_send` empty/oversize/disconnected/error; TypeChat route, mapped sender labels, multiline/special-character preservation, Copy exact text; confirm no automatic retry when delivery is unknown; confirm chat content is never dispatched to executor/MCPCall. Real agent deciding when to ask Windows user and native clipboard remain real-host checks.
 
 **Kiểm chứng M4:** Start/Stop AutoCAD được phép; app không được phép → từ chối;
-Thoát Bridge không tắt AutoCAD; chat 2 chiều; mọi thao tác §11 làm được trên UI.
+Thoát Bridge không tắt AutoCAD; chat 2 chiều gồm text agent qua cùng chat hiện có,
+Windows user nhìn thấy và copy được script nhiều dòng để tự chạy khi cần handoff; chat text
+không tự thực thi; mọi thao tác §11 làm được trên UI; activity MCP hiện nhãn đúng,
+trạng thái kết thúc đúng và không rò nội dung call.
+**- test required:** xác minh với Claude Code/CAI MCP thật và giao diện native trên Mac/Windows.
 
 ---
 
@@ -279,9 +297,10 @@ Thoát Bridge không tắt AutoCAD; chat 2 chiều; mọi thao tác §11 làm đ
 
 ## Cố ý không làm
 Nhiều client cùng lúc; tự cập nhật; sync 2 chiều hoặc xóa file; chuyển tiếp resources/prompts
-của MCP; chat cho agent; service Windows/tự khởi động; transport MCP chưa có repo nào dùng;
+của MCP; chat AI/auto-execute; service Windows/tự khởi động; transport MCP chưa có repo nào dùng;
 thư viện mDNS thứ hai; xoay vòng log.
 
 ---
 
-Critic CR: PASS (rev 3, 2026-11-02)
+Critic CR: PASS (rev 7, independent PRE_CODE_TECHNICAL review; Plan/Milestones alignment and explicit command-label regression oracle confirmed)
+(rev 3, 2026-11-02 — docs/reports/2026-11-02-critic-cr-technical-proposal.md)
