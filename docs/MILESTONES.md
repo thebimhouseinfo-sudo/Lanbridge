@@ -1,0 +1,5 @@
+# Milestones — PLANNER PLACEHOLDER
+
+Status: NOT_CONFIGURED. Planner sets this to `Status: ACTIVE` when milestones are written.
+
+Planner writes actual Milestones right after the Implementation Plan / GOALMAP: Goals, accepted Decision links, exit evidence, review triggers, dependencies, change impact, branch/push authority and acceptance route. When a revised approved Plan replaces one Phase or the whole Plan, preserve COMPLETED evidence for review, then RETIRE all unfinished Milestones/Jobs/Tasks inside that changed boundary after safe in-flight settlement; leave other Phases unchanged. Create new Milestones/Jobs/Tasks for changed work with fresh identifiers, not recycled old IDs or compulsory one-to-one successors. An old exclusive work branch can be retired logically without deleting its Git history; never touch protected/shared branches just to clean up. Real Job/Run retirement needs the owning runtime; a Markdown status is not an execution receipt. Default review/push automation remains MANUAL_ONLY until configured/verified. This template contains no assumed product plan.

@@ -1,0 +1,51 @@
+# Ignore secrets/local ledgers/runtime generated state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+harness/chat-journal.jsonl
+harness/decisions.jsonl
+harness/approvals.jsonl
+harness/requests/
+harness/snapshots/
+harness/state.json
+harness/last-block.json
+
+# Local task state and generated Python files
+harness/active-task.json
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Git branch authority lives under Git common dir, not in tracked worktree
+# harness/config/branch-authority.example.json is documentation only
+# BEGIN bootstrap local agent setup
+# mode: local
+# Local agent configuration/state; product source and docs remain trackable.
+/.agents/
+/.antigravity/
+/.codex/
+/.claude/
+/.continue/
+/.generic/
+/.github/agents/
+/.github/copilot-instructions.md
+/.github/instructions/criteria.instructions.md
+/.github/COPILOT_SETUP.md
+/.github/hooks/criteria.json
+/.github/hooks/criteria-gate.cjs
+/.github/hooks/criteria-apply.cjs
+/harness/
+/lessons/
+/AGENTS.md
+/AGENTS.bootstrap.md
+/CLAUDE.md
+/TASKS.md
+/docs/PROJECT_PROFILE.md
+/docs/TRACE.md
+/docs/reports/_TEMPLATE.md
+/docs/reports/_REVIEW_TEMPLATE.md
+# END bootstrap local agent setup
