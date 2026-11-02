@@ -42,6 +42,7 @@ host:  permissions.Resolve → fileops | commands | mcpfwd → CAI MCP server | 
 
 - Windows: CGO tắt, 1 file exe, không cài runtime. Mac: build native (CGO cho menu bar).
 - Không framework UI; trang HTML nhúng, chỉ nghe 127.0.0.1 kèm token.
+- Icon tray/menu bar: Lucide (ISC), flat, đổi màu theo trạng thái; PNG/ICO tạo sẵn lúc phát triển và nhúng vào binary.
 - Ghép nối: mã 6 số + CPace (chép gói chuẩn kèm license) + xác nhận khóa 2 chiều → pin fingerprint. Không CA, không tự chế crypto.
 - Sync: vào repo root hoặc `related_dirs` của project (ví dụ thư mục nạp add-in).
 - Nhiều repo: mỗi project 1 mục trong `config.json` (root, 8 lệnh, MCP). Quyền do người dùng cấp lưu ở `state.json`.

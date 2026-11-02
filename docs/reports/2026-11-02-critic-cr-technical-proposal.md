@@ -102,3 +102,30 @@ No new feature beyond CRITERIA. The additions (`related_dirs`, the config "Tải
 ### Verdict (rev 3)
 
 **Critic CR: PASS.** All blocking findings F-01..F-07 are resolved in the proposal and aligned docs. F-08..F-16 are resolved, F-15 mostly. N-01..N-05 are non-blocking clarifications that Coder may fold into the proposal/Milestones or handle during implementation without another CR round. `docs/TECHNICAL_PROPOSAL.md` rev 3 is the final proposal; implementation may proceed after the setup lock (main path step 7). OS behaviours still UNVERIFIED (macOS Local Network prompt, Windows UDP 5353 sharing, Claude Code list_changed/timeout, CAI MCP transport) are scheduled as real-machine checks in M1–M3.
+
+---
+
+## Delta review — status icons
+
+- Scope: only the uncommitted icon delta. That is TECHNICAL_PROPOSAL (the Icon entry in the dependency list, the Task 1.5 icon state table, and the `internal/ui` line), MILESTONES M1 (deliverable and verification) and ARCHITECTURE (key decision line). Mode PRE_CODE_TECHNICAL; GUIDED_ONLY subagent run.
+- Verified 2026-11-02:
+  - Lucide `icons/cable.svg` and `icons/unplug.svg` exist on lucide-icons/lucide `main` (HTTP 200). They are 24×24 stroke icons using `stroke="currentColor"`, width 2, round caps and joins, paths only.
+  - fyne.io/systray Windows `SetIcon`: the doc says "content of .ico for windows". The bytes are written to a temp file and loaded with `LoadImageW(IMAGE_ICON, cx=cy=0, LR_LOADFROMFILE|LR_DEFAULTSIZE)`. That loads the frame closest to the system *large* icon size (SM_CXICON: 32 px at 100 %, 48 px at 150 %), which the shell then scales down.
+  - fyne.io/systray macOS `setIcon`: a single byte slice goes through `NSImage initWithData` and then `setSize:NSMakeSize(16, 16)`, with `image.template` set only by `SetTemplateIcon`. A plain `SetIcon` PNG is therefore drawn in its own colours at a fixed 16 pt. Separate `@2x` files are not supported.
+  - `srwiley/oksvg`: last commit 2022-10. It is a dev-time tool only, so this is acceptable.
+- Proportionality: proportionate. The icon work is one SVG→PNG/ICO step at development time, the output files are committed, and nothing new ships in the binary or is installed on Windows. A tooltip per state and a different icon shape for "disconnected" are cheap and help a non-technical user. The delta adds no notifications, animation or new UI framework.
+- Is a dev-only rasterizer the simplest option? Close to it. The alternatives are:
+  - Download PNGs by hand from lucide.dev at a chosen colour and size. That avoids oksvg, but it is manual and still leaves the ICO to be built.
+  - Use `rsvg-convert` or ImageMagick. Both need a Homebrew install on the Mac.
+
+  ICO needs an encoder either way. A small Go tool is repeatable and needs no extra install, so keep it. Keep its dependency out of the product module (N-08).
+
+| Finding | Blocking? | Goal / condition | Evidence | Smallest fix |
+|---|---|---|---|---|
+| N-06 macOS icon size wording does not match systray | NO | GOAL-10 | Proposal says "macOS 18 px (+ bản @2x)". systray accepts one image and always sizes it to 16×16 pt. | macOS: one PNG of 32×32 px (sharp on Retina, shown at 16 pt), passed to `SetIcon`, not `SetTemplateIcon`. |
+| N-07 Windows ICO frames | NO | GOAL-10 | Proposal ICO frames are 16/24/32. `LR_DEFAULTSIZE` picks the large-icon size, so at 125–150 % scaling Windows upsamples 32 px or downsamples blurry. The 2 px strokes suffer. | ICO frames 16, 20, 24, 32, 40, 48 (PNG-compressed frames are fine). Check sharpness at 100 % and 150 % in M1. |
+| N-08 Keep dev-only dependency out of the product module | NO | CRITERIA §2 #1 (few dependencies) | If `tools/genicons` lives in the main module, oksvg/rasterx appear in the main `go.mod` even though the binary does not link them. | Give `tools/genicons` its own `go.mod` (or `//go:build ignore` + `go run` with a separate module). Note it under the dependency list as "dev-only, separate module". |
+| N-09 Colour/contrast and licence notes | NO | GOAL-10 | A non-template coloured icon is not tinted by macOS, so it keeps the same colours on light and dark menu bars. Grey `#8E8E93` is mid-contrast on both; the other three states share one shape. Lucide's LICENSE is ISC with an MIT notice for Feather-derived icons. | Add to M1 verification: "nhìn rõ trên thanh menu sáng, tối và taskbar Windows sáng/tối". Commit Lucide's full LICENSE file unchanged (already intended). No other change. |
+| N-10 Consistency | NO | Consistency | Proposal, Milestones M1 and Architecture agree. The blue "Đang chạy lệnh" state can only be verified from M3, when commands exist. M1 verification correctly lists only connected / disconnected / waiting for pairing. | Optionally add "icon xanh dương khi đang build" to M3 verification. |
+
+**Verdict (delta): PASS.** The delta is proportionate and stays inside CRITERIA. Its basis is correct: the Lucide icons `cable` and `unplug` exist, the licence is permissive, and systray takes ICO on Windows and a coloured PNG on macOS. N-06..N-10 are non-blocking corrections that Coder may fold into the proposal text or apply during M1 without another CR round.

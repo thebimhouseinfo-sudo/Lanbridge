@@ -27,6 +27,9 @@ Danh sách này là nguồn duy nhất; `PROJECT_PROFILE.md` trỏ về đây.
   có xác nhận khóa Tag/Verify) vào `internal/third_party/cpace/` kèm file LICENSE (BSD), ghi rõ nguồn và commit.
   Không tự viết crypto.
 - `golang.org/x/sys/windows` — Job Object, `CREATE_NO_WINDOW`, `WM_CLOSE`.
+- Icon: bộ icon mở **Lucide** (giấy phép ISC), kiểu flat nét đơn. Chỉ dùng lúc phát triển:
+  `tools/genicons` (Go, **`go.mod` riêng**, dùng `github.com/srwiley/oksvg` + `rasterx`) chuyển SVG thành PNG/ICO một lần,
+  file kết quả commit vào `internal/ui/icons/` kèm LICENSE của Lucide. Binary chạy không mang thêm thư viện nào.
 - Phụ thuộc gián tiếp của các gói trên (ví dụ `miekg/dns` của zeroconf). Gói cpace chép vào chỉ dùng stdlib (`crypto/ecdh` cho X25519).
 
 Không dùng framework UI: giao diện là một trang HTML nhúng trong binary, mở bằng
@@ -112,6 +115,20 @@ Mac client: `~/Library/Application Support/LanBridge/state.json` (identity, host
 ### Task 1.5: Khung UI (dùng lại cho mọi milestone)
 - `internal/ui`: tray/menu bar với "Mở giao diện" và "Thoát"; HTTP server localhost
   phục vụ 1 trang HTML/JS thuần (embed), cập nhật qua SSE.
+- **Icon tray/menu bar báo trạng thái bằng màu** (cùng một hình, đổi màu; mất kết nối đổi sang hình "rút phích"
+  để người không phân biệt màu vẫn nhận ra):
+
+  | Trạng thái | Màu | Hình Lucide |
+  |---|---|---|
+  | Đã kết nối, sẵn sàng | Xanh lá `#34C759` | `cable` |
+  | Đang chạy lệnh build/test | Xanh dương `#0A84FF` | `cable` |
+  | Đang kết nối / chờ ghép nối / có yêu cầu quyền chờ duyệt | Vàng cam `#FF9F0A` | `cable` |
+  | Mất kết nối / chưa ghép nối | Xám `#8E8E93` | `unplug` |
+
+  - Kích thước: macOS một PNG 32×32 truyền vào `SetIcon` (không dùng `SetTemplateIcon`, để giữ màu), hiển thị 16 pt, nét trên Retina;
+    Windows một ICO chứa 16/20/24/32/40/48 px. Màu xám đủ tương phản trên thanh menu/taskbar sáng và tối.
+  - Rê chuột lên icon hiện dòng chữ trạng thái, ví dụ "Đã kết nối tới DESKTOP-ABC" hoặc "Đang build CAI…".
+  - Icon cập nhật ngay khi trạng thái đổi; không nhấp nháy, không thông báo bật lên.
 - M1 hiển thị: trạng thái kết nối, **IP:port của host** (để nhập tay khi cần), ghép nối, Unpair, Thoát.
 - **Thoát** (từ tray hoặc nút trên trang) = dừng hẳn process: hủy lệnh đang chạy, đóng kết nối.
   Đóng tab trình duyệt không thoát app (icon tray vẫn hiện nên không phải chạy ngầm).
@@ -255,7 +272,7 @@ Thoát Bridge không tắt AutoCAD; chat 2 chiều; mọi thao tác §11 làm đ
 - `internal/protocol` — kiểu message + mã lỗi, dùng chung cho host, client, `bridge mcp`.
 - `internal/permissions.Resolve` — kiểm tra đường dẫn duy nhất cho Read/Sync/Execute/MCP.
 - `internal/store` — đọc `config.json` (chỉ đọc); đọc/ghi `state.json` an toàn (temp → rename).
-- `internal/ui` — tray + HTTP/SSE localhost, dùng cho cả host và client.
+- `internal/ui` — tray (icon màu theo trạng thái) + HTTP/SSE localhost, dùng cho cả host và client.
 - `internal/mcp` — kiểu JSON-RPC/MCP dùng chung; `internal/agentmcp` — `bridge mcp` (M2);
   `internal/mcpfwd` — phiên MCP tới server dự án trên host (M3).
 - Log: `log/slog` ra 1 file trong thư mục state, xóa trắng mỗi lần khởi động.

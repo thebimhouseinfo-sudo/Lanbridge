@@ -14,11 +14,12 @@ Chi tiết kỹ thuật từng Task: `docs/TECHNICAL_PROPOSAL.md`.
 - Spike tìm máy trên 2 máy thật trước; `.app` macOS khai báo quyền Mạng cục bộ.
 - Thông điệp `bye` khi Mac Thoát (dùng để hủy lệnh từ M3).
 - Heartbeat, tự kết nối lại, Thoát dừng hẳn process.
-- Khung UI: icon tray/menu bar + trang HTML localhost, hiện IP:port của host.
+- Khung UI: icon tray/menu bar (Lucide, flat) đổi màu theo trạng thái + trang HTML localhost, hiện IP:port của host.
 
 **Verification (2 máy thật, chạy từ `.app` và `bridge.exe`):**
 - Tìm thấy nhau, ghép nối đúng mã; mã sai bị từ chối; sai 3 lần → mã hủy.
 - Tắt/mở lại cả 2 → tự kết nối; mất Wi-Fi rồi có lại → tự nối lại.
+- Icon đổi màu đúng khi: kết nối, mất kết nối, chờ ghép nối; nhìn rõ trên thanh menu macOS sáng/tối và taskbar Windows sáng/tối, Windows nét ở scale 100% và 150%.
 - Thoát → process không còn.
 
 ---
@@ -50,6 +51,7 @@ Chi tiết kỹ thuật từng Task: `docs/TECHNICAL_PROPOSAL.md`.
 
 **Verification:**
 - `build` của CAI chạy thật, trả exit code + output, không bật cửa sổ console; ID lạ → từ chối.
+- Icon chuyển xanh dương khi build đang chạy.
 - Lệnh dài lấy tiếp bằng `command_result`, kể cả sau khi Wi-Fi rớt rồi nối lại.
 - Thoát Windows hoặc Thoát Mac giữa lúc build → không còn process build trên Windows.
 - Gọi 1 tool thật của CAI MCP từ Claude Code trên Mac; tắt/mở lại CAI MCP server → gọi lại được không cần khởi động lại Bridge.
