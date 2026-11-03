@@ -76,3 +76,17 @@ func TestWindowsActualGrantMayBeNarrowerAndRejectUnknownCapability(t *testing.T)
 	if err:=gate.BeginRequest("req2",project,[]string{CapRead});err!=nil{t.Fatal(err)}
 	if err:=gate.RespondRequest("req2",true,[]string{"unknown-cap"});err==nil{t.Fatal("unknown grant should fail")}
 }
+
+func TestActiveWindowsProjectExecAndMCPDoNotRequireProjectRootPath(t *testing.T){
+ storePath:=filepath.Join(t.TempDir(),"state.json")
+ stateStore,err:=store.NewStateStoreAt(storePath);if err!=nil{t.Fatal(err)}
+ project:=t.TempDir()
+ other:=t.TempDir()
+ gate,err:=NewGatekeeper(stateStore,&store.HostConfig{Projects:[]store.ProjectConfig{{Name:"app",Root:project}}})
+ if err!=nil{t.Fatal(err)}
+ if err:=gate.AddGrant(other,[]string{CapExecute,CapMCP});err!=nil{t.Fatal(err)}
+ if !gate.HasCapability(CapExecute)||!gate.HasCapability(CapMCP){t.Fatal("Windows project grants not effective outside root")}
+ if gate.HasCapability(CapRead){t.Fatal("Read was not granted")}
+ if err:=gate.RevokeGrant(other);err!=nil{t.Fatal(err)}
+ if gate.HasCapability(CapExecute)||gate.HasCapability(CapMCP){t.Fatal("revoked project grants still active")}
+}
