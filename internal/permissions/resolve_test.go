@@ -218,11 +218,19 @@ func TestGatekeeperConstraints(t *testing.T) {
 	if err := gate.AddGrant(addinSubdir, []string{CapSync}); err != nil {
 		t.Errorf("Expected sync grant under related_dirs to succeed, got: %v", err)
 	}
-	if err := gate.AddGrant(otherDir, []string{CapExecute}); err == nil {
-		t.Error("Expected execute grant outside project root to fail")
+	// Windows independently decides the scope of Execute and MCP grants.
+	if err := gate.AddGrant(otherDir, []string{CapExecute}); err != nil {
+		t.Errorf("Actual Windows execute grant outside repo must work: %v",err)
 	}
-	if err := gate.AddGrant(filepath.Join(projRoot, "nested"), []string{CapMCP}); err == nil {
-		t.Error("Expected MCP grant below (not at) project root to fail")
+	if !gate.CheckAccess(otherDir,CapExecute) {
+		t.Error("Execute grant outside project root not applied")
+	}
+	if err := os.MkdirAll(filepath.Join(projRoot,"nested"),0755); err != nil {t.Fatal(err)}
+	if err := gate.AddGrant(filepath.Join(projRoot, "nested"), []string{CapMCP}); err != nil {
+		t.Errorf("Actual Windows MCP grant under project root must work: %v",err)
+	}
+	if !gate.CheckAccess(filepath.Join(projRoot,"nested"),CapMCP) {
+		t.Error("MCP grant did not become effective")
 	}
 	if err := gate.RevokeGrant(projRoot); err != nil {
 		t.Fatal(err)
