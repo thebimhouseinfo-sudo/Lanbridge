@@ -98,3 +98,21 @@ func TestManagerRejectsInvalidActionAndExecutable(t *testing.T) {
 		t.Fatal("unknown app action was accepted")
 	}
 }
+
+func TestProjectSwitchReplacesAppsAndGranularRights(t *testing.T) {
+ exe:=filepath.Join(t.TempDir(),"example.exe")
+ if err:=os.WriteFile(exe,[]byte("exe"),0600);err!=nil{t.Fatal(err)}
+ controller:=&fakeController{}
+ manager:=newManager(nil,controller)
+ if err:=manager.AddApp("Example",exe);err!=nil{t.Fatal(err)}
+ if err:=manager.SetActionPermissions("0",true,false);err!=nil{t.Fatal(err)}
+ info:=manager.List()
+ if len(info)!=1||!info[0].CanStart||info[0].CanStop{t.Fatalf("wrong rights: %+v",info)}
+ if _,err:=manager.Control("0","start");err!=nil{t.Fatal(err)}
+ if _,err:=manager.Control("0","stop");err==nil{t.Fatal("Stop was not granted")}
+ if err:=manager.ReplaceApps([]store.AppConfig{{Name:"Other",Path:exe}},[]ActionPermissions{{Start:false,Stop:true}});err!=nil{t.Fatal(err)}
+ if _,err:=manager.Control("0","start");err==nil{t.Fatal("Start permission leaked across profile switch")}
+ if _,err:=manager.Control("0","stop");err!=nil{t.Fatal(err)}
+ if err:=manager.RemoveApp("0");err!=nil{t.Fatal(err)}
+ if len(manager.List())!=0{t.Fatal("app not removed")}
+}
