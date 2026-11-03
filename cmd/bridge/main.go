@@ -22,6 +22,7 @@ import (
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentconfig"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentlock"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentmcp"
+ "github.com/thebimhouseinfo-sudo/testbridge/internal/awake"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/appcontrol"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/executor"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/fileops"
@@ -101,6 +102,10 @@ func runHost(args []string) {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		os.Exit(1)
 	}
+
+	powerGuard,powerErr:=awake.Acquire()
+	if powerErr!=nil{slog.Warn("Windows idle sleep inhibition unavailable","error",powerErr)}
+	defer powerGuard.Release()
 
 	// 1. Load config.json
 	cfg, err := store.LoadHostConfig()
@@ -220,6 +225,7 @@ func runHost(args []string) {
 				stopMDNS()
 			}
 			execMgr.CancelAll()
+			powerGuard.Release()
 			_ = server.Close()
 			_ = webUI.Close()
 			os.Exit(0)
@@ -662,6 +668,7 @@ func runHost(args []string) {
 			}
 			execMgr.CancelAll()
 			if id:=hostSession.Snapshot().WindowsID;id!="" && mcpMgr!=nil{mcpMgr.CloseProject(id)}
+			powerGuard.Release()
 			_ = server.Close()
 			_ = webUI.Close()
 			os.Exit(0)
@@ -1486,6 +1493,10 @@ func runClient(args []string) {
 		os.Exit(1)
 	}
 
+	powerGuard,powerErr:=awake.Acquire()
+	if powerErr!=nil{slog.Warn("Mac idle sleep inhibition unavailable","error",powerErr)}
+	defer powerGuard.Release()
+
 	stateStore, err := store.NewStateStore()
 	if err != nil {
 		slog.Error("Failed to initialize state store", "error", err)
@@ -1729,6 +1740,7 @@ func runClient(args []string) {
 			if client != nil {
 				_ = client.Close()
 			}
+			powerGuard.Release()
 			if mcpAuthInfo != nil {
 				if err := agentmcp.RemoveAuthFile(mcpAuthInfo); err != nil {
 					slog.Warn("Failed to remove local MCP auth file", "error", err)
