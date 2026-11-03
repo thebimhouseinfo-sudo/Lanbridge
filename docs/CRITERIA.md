@@ -113,7 +113,12 @@ không giới hạn vào registry 8 lệnh build và không tạo shell whitelis
 
 Proxy mỏng kết nối Mac agent tới MCP server sẵn có trên Windows.
 Khi MCP Access được cấp, forward toàn bộ tools của server đó.
-Bridge không filter hay thêm policy lên tools.
+~~Bridge không filter hay thêm policy lên tools.~~
+Giữ MCP proxy mỏng, nhưng Command Blacklist của từng Project Config
+phải được áp dụng tại điểm gọi command/tool có thể xác định rõ.
+Khi command AutoCAD nằm bên trong payload của CAI/MCP, CAI command
+dispatcher dùng blacklist được cấu hình để từ chối command tương ứng.
+Không thêm hệ thống per-tool security policy hay sandbox tổng quát.
 
 ## 9. Optional software Start/Stop
 
@@ -165,10 +170,23 @@ pasted logs, Copy. Không chat AI, không auto-execute.
     Mac được dùng Shell/Exec để đóng/mở AutoCAD khi rebuild DLL.
 19. Agent được test liên tục trên Active Drawing, New Drawing hoặc Saved
     Test DWG đã biết đường dẫn, mở trực tiếp qua OS/Shell trong folder được cấp.
-20. CAI/MCP blacklist AutoCAD `Documents.Open`, `OPEN` và biến thể qua
-    COM/SendCommand/LISP; các COM/MCP thao tác CAD khác không bị chặn.
+20. ~~CAI/MCP blacklist AutoCAD `Documents.Open`, `OPEN` và biến thể qua
+    COM/SendCommand/LISP; các COM/MCP thao tác CAD khác không bị chặn.~~
+    Project CAI có file blacklist gồm `Documents.Open`, `OPEN` và
+    biến thể COM/SendCommand/LISP; CAI/MCP dispatcher áp dụng blacklist,
+    không chặn các COM/MCP CAD khác.
 21. Bridge không implement blacklist CAD bằng cách phân tích mọi Shell Command;
     CAI/RAI vẫn sở hữu nghiệp vụ test/drawing.
+22. Mỗi dự án có đúng hai file config riêng trong App Data: Permission
+    Config (folders/programs/grants) và Command Blacklist Config.
+23. Windows user Edit/Revoke Permission Config dù blacklist Locked.
+24. Agent đọc repo, theo yêu cầu user được thêm/bớt/sửa blacklist
+    khi Windows user đã Unlock thủ công; Locked thì bị từ chối.
+25. File blacklist Locked là read-only qua UI/agent/config API, vẫn
+    đọc/load/áp dụng được; Lock state tồn tại qua restart.
+26. Chỉ Windows user Unlock thủ công, agent không tự Unlock.
+27. Project CAI/RAI dùng blacklist riêng; agent không được dùng Shell
+    để vòng qua trạng thái Locked của blacklist.
 
 ## 12. Explicit NON-goals
 
@@ -219,8 +237,14 @@ trước khi chọn thư viện.
   `config.list()`, `config.current()`, `config.save(name)`,
   `config.load(name_or_id)`, `config.delete(name_or_id)`.
   Đây là API logic đề xuất, không khóa chặt tên wire protocol.
-- Profile chứa các thiết lập Connection, Folder Grants, Workspace/Project,
-  Exec/Build, Software Control và thông tin MCP khi áp dụng.
+- ~~Profile chứa các thiết lập Connection, Folder Grants, Workspace/Project,
+  Exec/Build, Software Control và thông tin MCP khi áp dụng.~~
+  Mỗi dự án có **đúng hai file config** riêng trong App Data của Bridge:
+  (1) **Permission Config**, chứa folders, programs, Actual Granted
+  Permissions và tham chiếu thực thi/MCP nếu cần; (2) **Command Blacklist
+  Config**, chứa danh sách lệnh/API bị cấm riêng cho dự án. Connection/
+  pairing chung có thể ở Bridge global settings, không thêm config
+  thứ ba cho riêng dự án. Quy tắc chỉnh sửa/Lock xem §19.
 - **Windows là chủ thể quyết định Grant**: Mac không thể sửa file profile
   phía Mac để tạo/nâng quyền trên Windows. Load profile Windows đã lưu
   có thể khôi phục Grant do user đã cấp, không phải xin duyệt lại chỉ
@@ -262,7 +286,12 @@ thao tác**. Nguồn drawing được dùng:
    (file association hoặc Start-Process, kể cả khởi động AutoCAD với
    test DWG được chỉ rõ). Đây không phải AutoCAD in-app OPEN.
 
-**CAI/MCP command blacklist** (không phải security sandbox của Bridge):
+~~**CAI/MCP command blacklist** (không phải security sandbox của Bridge):~~
+**Command Blacklist được lưu trong file config thứ hai của từng dự án**
+(xem §19), không hardcode chung cho tất cả projects. Agent đọc repo để
+đề xuất và, theo yêu cầu user, thêm/bớt/sửa entries **chỉ khi Windows
+user đã Unlock thủ công**. CAI/MCP áp dụng blacklist khi dispatch
+AutoCAD command/COM. Các mục sau là blacklist CAI đã được yêu cầu:
 
 - COM `Application.Documents.Open()`, `AcadDocuments.Open()`,
   `Documents.Open()` và API Open tương đương để chọn một DWG khác.
@@ -274,10 +303,14 @@ thao tác**. Nguồn drawing được dùng:
 - **Không blacklist** COM `ActiveDocument`, `Documents.Add()`, các thao tác
   vẽ/sửa/đọc drawing đã được phép, hay Shell mở trực tiếp known test DWG
   trong folder đã Grant.
-- Bridge vẫn forward MCP theo §8, không filter tools của CAI, không cố
+- ~~Bridge vẫn forward MCP theo §8, không filter tools của CAI, không cố
   đọc/phân tích tùy ý mọi shell command để áp đặt blacklist CAD.
   Blacklist là chính sách workflow tại CAI/MCP tool/command dispatch,
-  không phải rào cản bảo mật tuyệt đối đối với Exec tùy ý.
+  không phải rào cản bảo mật tuyệt đối đối với Exec tùy ý.~~
+  Bridge lưu/nạp blacklist riêng của project; dispatcher tương ứng
+  kiểm tra lệnh nhận diện được. CAI/MCP chịu trách nhiệm command nằm
+  trong payload, không yêu cầu Bridge parse tùy ý mọi Shell Command.
+  Blacklist là quy tắc workflow, không phải sandbox chống Exec tùy ý.
 
 ## 18. End-to-end Development / Testing
 
@@ -287,13 +320,67 @@ thao tác**. Nguồn drawing được dùng:
 4. Mac theo Actual Grant: Read logs/source → Exec build/script → Sync small
    source/DLL → Shell Stop/Start ứng dụng → gọi CAI/RAI MCP để test.
 5. Khi test AutoCAD chỉ dùng Active Drawing / New Drawing / OS-shell direct
-   open Saved Test Drawing theo §17; các AutoCAD OPEN/COM Open bị blacklist.
+   open Saved Test Drawing theo §17; AutoCAD OPEN/COM Open bị blacklist
+   theo Command Blacklist Config của project CAI đang nạp.
 6. Lặp lại build/test trong phiên đã Grant, không thêm human gate.
 7. Thoát một trong hai Bridge app → kết thúc phiên, giữ nguyên các
    Config Profiles đã lưu để sử dụng trong lần sau.
 
 Không phát triển CI/CD, background runner, scheduler, general remote
 desktop, OS sandbox hay control-plane phức tạp ngoài mục tiêu Bridge.
+
+## 19. Exactly Two Per-Project Config Files and Manual Blacklist Lock
+
+Mỗi dự án (CAI, RAI, AssetGen, ...) thuộc một Named Config Profile và có
+**đúng hai file config riêng** trong App Data của Bridge. Tên file dưới
+đây chỉ là ví dụ; không cố định schema hoặc filename trong Criteria:
+
+```text
+App Data/TestBridge/profiles/<project-id>/
+  permissions.json        # Windows-owned folders/apps/capability grants
+  command-blacklist.json  # Project commands/APIs to avoid
+```
+
+**File 1 — Permission Config (do Windows user quản lý):**
+
+- Lưu folders, programs/executables, Read/Sync/Exec, MCP Access,
+  Start/Stop và các Actual Grants. Lưu workspace/project reference
+  nếu cần vận hành.
+- Windows user tự Add Folder/App, Accept/Reject/Edit/Revoke qua UI;
+  không bắt buộc Mac yêu cầu trước hoặc sửa JSON.
+- Agent chỉ Request quyền, **không tự sửa file permission** nhằm cấp
+  hoặc nâng quyền cho mình.
+- **Lock/Unlock của blacklist KHÔNG khóa file này**. Windows vẫn
+  được chỉnh sửa quyền hoặc Revoke bất cứ lúc nào.
+
+**File 2 — Command Blacklist Config (agent-assisted):**
+
+- Chứa danh sách command/API blacklist riêng của dự án. Agent
+  **đọc/khảo sát repo** trước khi đề xuất cấu hình và chỉ chỉnh
+  (thêm/bớt/sửa) theo yêu cầu của user.
+- Agent **chỉ được phép sửa file này khi Windows user đã Unlock thủ công**.
+  Windows UI phải có nút **Lock / Unlock**, thể hiện rõ trạng thái.
+- Khi **Locked**: nội dung blacklist là read-only; cấm ghi đè,
+  thêm/bớt/sửa/xóa bằng UI hoặc API agent; vẫn được xem, load và áp dụng
+  để kiểm thử. Agent không được dùng Shell/Sync để vòng qua Lock.
+- Khi **Unlocked**: Agent được user yêu cầu có thể cập nhật blacklist.
+  Chỉ user Windows được bấm Lock/Unlock; không có auto-unlock cho agent.
+- Lock state được lưu qua restart (có thể là metadata chung của Bridge,
+  không tạo file config thứ ba cho dự án).
+- Lock chỉ khóa **chỉnh sửa file blacklist**, không tạo thêm gate
+  approval trước từng lần Build/Test/Read/Sync/Exec/MCP.
+
+**Profile và Dispatch:**
+
+- Save/Load profile sử dụng đúng cặp file của dự án; không đưa blacklist
+  của CAI sang RAI, không overwrite file blacklist đang Locked.
+- Bridge nạp blacklist của dự án; dispatcher đủ thông tin để nhận
+  diện command/API có trách nhiệm kiểm tra nó. Với AutoCAD in-app
+  OPEN và COM Open trong MCP payload, CAI/MCP dispatcher kiểm tra.
+  Bridge không parse mọi Shell Command hay xây thêm security sandbox.
+- Connection/pairing global settings của Bridge có thể lưu riêng;
+  yêu cầu **hai file** áp dụng cho config **mỗi dự án**, không cấm
+  Bridge có các file dữ liệu toàn cục phục vụ hoạt động.
 
 ## Technical Advisor decision checkpoint
 
@@ -312,3 +399,8 @@ tiêu chí nhẹ + tin cậy. Phạm vi cá nhân → gate đơn giản là đ�
   Shell/Exec phục vụ rebuild/restart app, CAI Drawing Test Policy và
   AutoCAD OPEN/COM blacklist. Ý Criteria cũ mâu thuẫn được giữ nguyên
   bằng Markdown ~~gạch bỏ~~, không xóa nội dung lịch sử.
+- v1.2 HUMAN REQUIREMENT: 2026-11-03 — Mỗi project có đúng hai
+  file: Permission Config do Windows quản lý và Command Blacklist
+  Config được AI chỉnh theo yêu cầu user chỉ khi manual Unlock.
+  Lock blacklist không ảnh hưởng Edit/Revoke Permission Config;
+  nội dung cũ xung đột tiếp tục giữ lại bằng gạch bỏ.
