@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$PackageDirectory = $PSScriptRoot,
+    [string]$PackageDirectory,
     [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA "LanBridge"),
     [string]$ConfigDirectory = (Join-Path $env:APPDATA "LanBridge"),
     [string]$ShortcutRoot
@@ -9,6 +9,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 try {
+    if ([string]::IsNullOrWhiteSpace($PackageDirectory)) {
+        $PackageDirectory = $PSScriptRoot
+    }
     $packageExe = Join-Path $PackageDirectory "bridge.exe"
     if (-not (Test-Path -LiteralPath $packageExe -PathType Leaf)) {
         throw "bridge.exe was not found in package directory: $PackageDirectory"
