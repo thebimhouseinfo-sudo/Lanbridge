@@ -123,8 +123,22 @@ func (s *Store) SaveWindows(id string, p WindowsPermissions) error {
  path,err:=s.FilePath(id,false);if err!=nil{return err}
  if err=validateWindows(id,&p);err!=nil{return err}
  if p.Folders==nil {p.Folders=[]FolderGrant{}}
- data,err:=json.MarshalIndent(p,"","  ");if err!=nil{return err}
- return writeAtomic(path,append(data,'\n'))
+ data,err:=json.Marshal(p);if err!=nil{return err}
+ var replacement map[string]json.RawMessage
+ if err=json.Unmarshal(data,&replacement);err!=nil{return ErrInvalid}
+ // Preserve forward-compatible keys rather than silently removing them
+ // when the Windows user saves grants/programs on an existing profile.
+ existing,readErr:=os.ReadFile(path)
+ if readErr==nil{
+  var original map[string]json.RawMessage
+  if json.Unmarshal(existing,&original)!=nil{return ErrInvalid}
+  if original==nil{return ErrInvalid}
+  for key,value:=range original {
+   if _,known:=replacement[key];!known{replacement[key]=value}
+  }
+ }else if !errors.Is(readErr,os.ErrNotExist){return ErrInvalid}
+ marshaled,err:=json.MarshalIndent(replacement,"","  ");if err!=nil{return ErrInvalid}
+ return writeAtomic(path,append(marshaled,'\n'))
 }
 func (s *Store) LoadWindows(id string) (WindowsPermissions,error) {
  s.mu.Lock();defer s.mu.Unlock()
