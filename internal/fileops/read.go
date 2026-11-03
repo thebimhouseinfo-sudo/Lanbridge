@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/permissions"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/store"
 )
 
 const (
@@ -28,10 +30,8 @@ type FileItem struct {
 // ListDir lists entries in a directory after gate check
 func ListDir(gate *permissions.Gatekeeper, dirPath string) ([]FileItem, error) {
 	resolvedDir, err := gate.ResolveAccess(dirPath, permissions.CapRead)
-	if err != nil {
-		return nil, err
-	}
-
+	if err != nil {return nil,err}
+	if err:=denyBridgePrivatePath(resolvedDir);err!=nil{return nil,err}
 	entries, err := os.ReadDir(resolvedDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -60,10 +60,8 @@ func ListDir(gate *permissions.Gatekeeper, dirPath string) ([]FileItem, error) {
 // GetFileInfo retrieves metadata for a single file after gate check
 func GetFileInfo(gate *permissions.Gatekeeper, filePath string) (*FileItem, error) {
 	resolvedPath, err := gate.ResolveAccess(filePath, permissions.CapRead)
-	if err != nil {
-		return nil, err
-	}
-
+	if err != nil {return nil,err}
+	if err:=denyBridgePrivatePath(resolvedPath);err!=nil{return nil,err}
 	info, err := os.Stat(resolvedPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -84,9 +82,8 @@ func GetFileInfo(gate *permissions.Gatekeeper, filePath string) (*FileItem, erro
 // ReadFileChunk reads a chunk of a file up to MaxReadChunkSize (1MB)
 func ReadFileChunk(gate *permissions.Gatekeeper, filePath string, offset int64, length int) ([]byte, bool, error) {
 	resolvedPath, err := gate.ResolveAccess(filePath, permissions.CapRead)
-	if err != nil {
-		return nil, false, err
-	}
+	if err != nil {return nil,false,err}
+	if err:=denyBridgePrivatePath(resolvedPath);err!=nil{return nil,false,err}
 	if offset < 0 {
 		return nil, false, errors.New("ERR_PARAMS: offset cannot be negative")
 	}
@@ -133,9 +130,8 @@ func ReadFileChunk(gate *permissions.Gatekeeper, filePath string, offset int64, 
 // ReadTailLines reads the last N lines of a file (useful for inspecting log crashes)
 func ReadTailLines(gate *permissions.Gatekeeper, filePath string, numLines int) ([]string, error) {
 	resolvedPath, err := gate.ResolveAccess(filePath, permissions.CapRead)
-	if err != nil {
-		return nil, err
-	}
+	if err != nil {return nil,err}
+	if err:=denyBridgePrivatePath(resolvedPath);err!=nil{return nil,err}
 	if numLines < 0 {
 		return nil, errors.New("ERR_PARAMS: tail_lines cannot be negative")
 	}
@@ -173,4 +169,13 @@ func ReadTailLines(gate *permissions.Gatekeeper, filePath string, numLines int) 
 		return nil, fmt.Errorf("ERR_IO: scan failed: %w", err)
 	}
 	return lines, nil
+}
+
+func denyBridgePrivatePath(path string) error {
+ dir,err:=store.GetConfigDir()
+ if err!=nil{return err}
+ if projectconfig.IsBridgePrivatePath(path,dir) {
+  return fmt.Errorf("ERR_CONFIG_PROTECTED: Bridge App Data cannot be sent through generic File Read/Sync")
+ }
+ return nil
 }
