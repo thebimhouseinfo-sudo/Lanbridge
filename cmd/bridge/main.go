@@ -332,7 +332,22 @@ func runHost(args []string) {
 			return nil
 		},
 		func(id string) error {
+			// Reopening/switching a Windows project invalidates previously
+			// loaded pairing for the project. A missing or corrupt new file
+			// must not leave the old project silently authorized.
 			if !hostConnected.Load(){return errors.New("connect to Mac before opening a project")}
+			previousID:=hostSession.Snapshot().WindowsID
+			hostSession.Clear()
+			activeProjectMu.Lock();activeProject=nil;activeProjectMu.Unlock()
+			if previousID!="" {
+				execMgr.CancelAll()
+				if mcpMgr!=nil{mcpMgr.CloseProject(previousID)}
+			}
+			webUI.UpdateState(func(st *ui.UIState){
+				st.ProjectID="";st.ProjectReady=false
+				st.ProjectError=projectconfig.ErrNotOpen.Error()
+			})
+			sendClientUIState()
 			p,err:=hostProfiles.LoadWindows(id)
 			if err!=nil{return err}
 			root:=p.Workspace
@@ -349,12 +364,8 @@ func runHost(args []string) {
 				})
 			}
 			if err:=gate.ReplaceGrants(grants);err!=nil{return err}
-			previousID:=hostSession.Snapshot().WindowsID
-			if previousID!="" && previousID!=id {
-				// Switching projects must not leave the old project's jobs
-				// executing under a different active permission profile.
-				execMgr.CancelAll()
-			}
+			// Previous project jobs/MCP sessions were invalidated before
+			// opening the selected local file. No silent old-profile reuse.
 			approvedApps:=make([]store.AppConfig,0,len(p.Programs))
 			appRights:=make([]appcontrol.ActionPermissions,0,len(p.Programs))
 			for _,a:=range p.Programs {
