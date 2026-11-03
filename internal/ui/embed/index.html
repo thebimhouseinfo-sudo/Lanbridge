@@ -201,6 +201,7 @@
           <option value="">Chọn config đã lưu</option>
         </select>
         <button class="btn-primary" type="button" onclick="openProjectProfile()">Open đã lưu</button>
+        <button id="profileSaveButton" class="btn-secondary" type="button" onclick="saveWindowsProfile()">Save</button>
       </div>
       <div class="address-form" style="margin-top: 10px;">
         <input id="projectProfileID" type="text" placeholder="Project ID" aria-label="Project ID cho setup lần đầu">
@@ -444,6 +445,8 @@
         ? 'PROJECT_READY — ' + (s.project_id || '')
         : (s.project_error || 'CONFIG_NOT_OPEN — hai máy cần mở đúng Project ID');
       document.getElementById('macBlacklistSection').style.display = isClient ? 'block' : 'none';
+      document.getElementById('profileSaveButton').style.display = isClient ? 'none' : 'inline-block';
+      document.getElementById('profileSaveButton').disabled = !s.project_id;
       if (!isClient) return;
       const locked = Boolean(s.blacklist_locked);
       const loaded = Boolean(s.project_id);
@@ -481,6 +484,12 @@
       try {
         await projectAction('open', {project_id});
         document.getElementById('projectProfileAction').textContent = 'Đã Open: ' + project_id;
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+    async function saveWindowsProfile() {
+      try {
+        await projectAction('save');
+        document.getElementById('projectProfileAction').textContent = 'Windows Permission Config đã lưu.';
       } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
     }
     async function toggleBlacklistLock() {
