@@ -147,6 +147,16 @@ func runHost(args []string) {
 		os.Exit(1)
 	}
 	hostSession := &projectconfig.Session{}
+	var activeProjectMu sync.RWMutex
+	var activeProject *store.ProjectConfig
+	getActiveProject := func(id string) *store.ProjectConfig {
+		state:=hostSession.Snapshot()
+		if !state.Ready || id!=state.WindowsID{return nil}
+		activeProjectMu.RLock();defer activeProjectMu.RUnlock()
+		if activeProject==nil || activeProject.Name!=id{return nil}
+		copy:=*activeProject
+		return &copy
+	}
 
 	// 3. Setup TLS server
 	var pairedClientFingerprint atomic.Value
@@ -241,7 +251,8 @@ func runHost(args []string) {
 		os.Exit(1)
 	}
 	registerReadHandlers(server, gate)
-	registerSyncHandler(server, gate, cfg)
+	server.RegisterHandler(protocol.TypeFileSync,
+		syncFilesHandlerWithProject(gate,cfg,getActiveProject))
 	sendClientUIState := func() {
 		if !hostConnected.Load() || pairedClientFingerprint.Load().(string) == "" {
 			return
@@ -325,6 +336,13 @@ func runHost(args []string) {
 			if !hostConnected.Load(){return errors.New("connect to Mac before opening a project")}
 			p,err:=hostProfiles.LoadWindows(id)
 			if err!=nil{return err}
+			root:=p.Workspace
+			if root==""{return fmt.Errorf("CONFIG_INVALID: project workspace missing")}
+			current:=&store.ProjectConfig{Name:id,Root:root,
+				Commands:p.NamedCommands}
+			if p.MCP!=nil{current.MCP=&store.MCPConfig{
+				Transport:p.MCP.Transport,Command:append([]string(nil),p.MCP.Command...),URL:p.MCP.URL,
+			}}
 			grants:=make([]store.PermissionGrant,0,len(p.Folders))
 			for _,folder:=range p.Folders {
 				grants=append(grants,store.PermissionGrant{
@@ -332,6 +350,7 @@ func runHost(args []string) {
 				})
 			}
 			if err:=gate.ReplaceGrants(grants);err!=nil{return err}
+			activeProjectMu.Lock();activeProject=current;activeProjectMu.Unlock()
 			if err:=hostSession.SetWindowsLoaded(id);err!=nil{return err}
 			status:=hostSession.Snapshot()
 			webUI.UpdateState(func(st *ui.UIState){
@@ -631,8 +650,9 @@ func runHost(args []string) {
 			req.WaitSeconds = 600
 		}
 
-		// Find project config
-		proj := findProject(cfg, req.Project)
+		// Only the manually loaded Windows project matching the Mac ID
+		// can execute commands; old global config entries are not active.
+		proj := getActiveProject(req.Project)
 		if proj == nil {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PROJECT", fmt.Sprintf("project '%s' not found", req.Project)), nil
 		}
@@ -714,15 +734,12 @@ func runHost(args []string) {
 
 		if req.Tool == "__list_tools" {
 			var sessionErrors []string
-			for i := range cfg.Projects {
-				proj := &cfg.Projects[i]
-				if proj.MCP == nil || !gate.HasPermission(proj.Root, "mcp") {
-					continue
-				}
-				if _, err := mcpMgr.Session(proj.Name, proj.Root, proj.MCP.Transport, proj.MCP.Command); err != nil {
-					message := fmt.Sprintf("%s: %v", proj.Name, err)
-					sessionErrors = append(sessionErrors, message)
-					slog.Error("Could not initialize project MCP session", "project", proj.Name, "error", err)
+			id:=hostSession.Snapshot().WindowsID
+			proj:=getActiveProject(id)
+			if proj!=nil && proj.MCP!=nil && gate.HasPermission(proj.Root,"mcp") {
+				if _,err:=mcpMgr.Session(proj.Name,proj.Root,proj.MCP.Transport,proj.MCP.Command);err!=nil {
+					message:=fmt.Sprintf("%s: %v",proj.Name,err)
+					sessionErrors=append(sessionErrors,message)
 				}
 			}
 			tools, warnings := mcpMgr.AllTools()
@@ -743,7 +760,7 @@ func runHost(args []string) {
 
 		// Check mcp permission for the target project
 		projName := mcpfwd.ExtractProject(req.Tool)
-		proj := findProject(cfg, projName)
+		proj := getActiveProject(projName)
 		if proj == nil {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PROJECT", fmt.Sprintf("project '%s' not found", projName)), nil
 		}
