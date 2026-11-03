@@ -9,7 +9,7 @@ Bản `test-2026-11-03` là bản thử, chưa được nghiệm thu trên hai m
 **Windows 10/11 x64:** Mở PowerShell và chạy một lệnh:
 
 ```powershell
-& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest 'https://github.com/thebimhouseinfo-sudo/testbridge/releases/download/test-2026-11-03/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; Expand-Archive "$d\package.zip" -DestinationPath $d; & "$d\install.ps1" }
+& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest 'https://github.com/thebimhouseinfo-sudo/testbridge/releases/download/test-2026-11-03/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1" }
 ```
 
 Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut và tạo `%APPDATA%\LanBridge\config.json` nếu chưa có. Chạy shortcut, tìm icon Bridge trong khay hệ thống, chọn **Mở giao diện**. Khi Windows Firewall hỏi, cho phép trên mạng Private tin cậy. Cài lại giữ file config hiện có.
