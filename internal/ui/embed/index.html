@@ -240,6 +240,22 @@
       <div id="windowsMCPSettings" style="margin-top:10px">
         <p class="hint">Executable MCP của dự án (tùy chọn):</p>
         <input id="projectMCPCommand" type="text" style="width:100%" placeholder="D:\Dev\MyApp\mcp.exe (tùy chọn)">
+        <h3>Generic project MCP — Windows</h3>
+        <label class="hint" for="projectMCPTransport">Transport</label>
+        <select id="projectMCPTransport" style="width:100%">
+          <option value="stdio">stdio</option><option value="streamable_http">Streamable HTTP</option>
+        </select>
+        <label class="hint" for="projectMCPArgv">stdio argv — JSON array of executable and arguments</label>
+        <input id="projectMCPArgv" style="width:100%" placeholder='["D:\\Tools\\mcp.exe","--stdio"]' value="[]">
+        <label class="hint" for="projectMCPEndpoint">HTTP endpoint — locally DPAPI protected, never displayed after Save</label>
+        <input id="projectMCPEndpoint" style="width:100%" type="password" autocomplete="off" placeholder="http://127.0.0.1:8765/mcp">
+        <label class="hint" for="projectMCPAuthorization">Optional Authorization header — Windows-local encrypted</label>
+        <input id="projectMCPAuthorization" style="width:100%" type="password" autocomplete="off" placeholder="Bearer …">
+        <div class="btn-group" style="margin-top:8px">
+          <button type="button" class="btn-secondary" onclick="projectMCPAction('test')">Test connection</button>
+          <button type="button" class="btn-primary" onclick="projectMCPAction('save')">Save MCP</button>
+        </div>
+        <p id="projectMCPStatus" class="hint">Endpoint chưa cấu hình.</p>
       </div>
       <div class="btn-group" style="margin-top:8px">
         <button class="btn-secondary" type="button" onclick="manageProjectProfile('save_as')">Save As</button>
@@ -524,6 +540,13 @@
         : (s.project_error || 'CONFIG_NOT_OPEN — hai máy cần mở đúng Project ID');
       document.getElementById('macBlacklistSection').style.display = isClient ? 'block' : 'none';
       document.getElementById('windowsMCPSettings').style.display = isClient ? 'none' : 'block';
+      if (!isClient) {
+        const transport = document.getElementById('projectMCPTransport');
+        if (document.activeElement !== transport && s.project_mcp_transport) transport.value = s.project_mcp_transport;
+        document.getElementById('projectMCPStatus').textContent = 'Current: ' + (s.project_mcp_transport || 'not set') +
+          ' · HTTP endpoint ' + (s.project_mcp_endpoint_set ? 'configured in Windows secret store' : 'not configured') +
+          '. Test không chỉnh Grants hay Permission Config.';
+      }
       document.getElementById('profileSaveButton').style.display = isClient ? 'none' : 'inline-block';
       document.getElementById('profileSaveButton').disabled = !s.project_id;
       if (!isClient) return;
@@ -567,6 +590,41 @@
         document.getElementById('projectProfileAction').textContent = 'Đã Open: ' + project_id;
       } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
     }
+    async function projectMCPAction(action) {
+      const project_id = document.getElementById('projectProfileSelect').value;
+      if (!project_id) {alert('Chọn project Config đã lưu trước.');return;}
+      const transport = document.getElementById('projectMCPTransport').value;
+      let argv = [];
+      if (transport === 'stdio') {
+        try {argv = JSON.parse(document.getElementById('projectMCPArgv').value || '[]');}
+        catch(e) {alert('stdio argv không phải JSON array.');return;}
+        if (!Array.isArray(argv) || !argv.every(s => typeof s === 'string')) {
+          alert('stdio argv phải là mảng string.');return;
+        }
+      }
+      const endpoint = transport === 'streamable_http'
+        ? document.getElementById('projectMCPEndpoint').value.trim() : '';
+      const authorization = transport === 'streamable_http'
+        ? document.getElementById('projectMCPAuthorization').value : '';
+      try {
+        const res = await fetch('/api/project/mcp?t='+encodeURIComponent(token),{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action,project_id,transport,argv,endpoint,authorization})
+        });
+        if (!res.ok) throw new Error((await res.text()).trim());
+        const data = await res.json();
+        document.getElementById('projectMCPStatus').textContent =
+          (action === 'test' ? 'Test success · ' : 'Saved · ') +
+          (data.tool_count ?? 0) + ' tools · ' + transport;
+        if (action === 'save') {
+          document.getElementById('projectMCPEndpoint').value='';
+          document.getElementById('projectMCPAuthorization').value='';
+        }
+      } catch(e) {
+        document.getElementById('projectMCPStatus').textContent='MCP ' + action + ' failed: ' + e.message;
+      }
+    }
+
     async function saveWindowsProfile() {
       try {
         await projectAction('save');
