@@ -949,6 +949,23 @@ func runHost(args []string) {
 	}
 }
 
+// authorizeMacProjectCall enforces local Mac blacklist and profile readiness
+// before any transport forwarding. Empty loaded list allows all real tools;
+// missing or not-loaded blacklist must never be inferred as [].
+func authorizeMacProjectCall(id string,blacklist projectconfig.MacBlacklist,ready bool,
+ toolName string,args map[string]any) error {
+ if !ready||id==""||blacklist.ProjectID!=id||blacklist.Entries==nil {
+  return projectconfig.ErrNotOpen
+ }
+ if isQualifiedProjectTool(toolName)&&mcpfwd.ExtractProject(toolName)!=id{
+  return projectconfig.ErrMismatch
+ }
+ if projectconfig.Denies(blacklist,toolName,args){
+  return fmt.Errorf("ERR_COMMAND_BLACKLISTED: %s",toolName)
+ }
+ return nil
+}
+
 // isProjectOperation identifies calls that must not bypass a missing or
 // unloaded Mac blacklist. Pairing and UI setup remain usable before READY.
 func isProjectOperation(typ string) bool {
@@ -2027,12 +2044,8 @@ func runClient(args []string) {
 		// deny list. Project tools and operations need both config files.
 		if toolName!="request_access" && toolName!="chat_send" {
 			id,blacklist,ready:=getMacProfile()
-			if !ready {return nil,projectconfig.ErrNotOpen}
-			if isQualifiedProjectTool(toolName) && mcpfwd.ExtractProject(toolName)!=id {
-				return nil,projectconfig.ErrMismatch
-			}
-			if projectconfig.Denies(blacklist,toolName,args){
-				return nil,fmt.Errorf("ERR_COMMAND_BLACKLISTED: %s",toolName)
+			if err:=authorizeMacProjectCall(id,blacklist,ready,toolName,args);err!=nil{
+				return nil,err
 			}
 		}
 		switch toolName {
