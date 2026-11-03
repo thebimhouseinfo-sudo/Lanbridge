@@ -162,9 +162,9 @@ func (s *StdioServer) watchMCPNotifications(ctx context.Context) {
 			continue
 		}
 		if response.StatusCode != http.StatusOK {
-			body, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
+			_, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
 			_ = response.Body.Close()
-			fmt.Fprintf(os.Stderr, "[bridge mcp] Kênh notification trả HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+			fmt.Fprintf(os.Stderr, "[bridge mcp] Kênh notification trả HTTP %d (response body omitted)", response.StatusCode)
 			if readErr != nil {
 				fmt.Fprintf(os.Stderr, " (lỗi đọc phản hồi: %v)", readErr)
 			}
@@ -600,7 +600,7 @@ func (s *StdioServer) reportActivity(status string) {
 			fmt.Fprintf(os.Stderr, "[bridge mcp] Activity trả HTTP %d; đọc phản hồi lỗi: %v\n", response.StatusCode, readErr)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "[bridge mcp] Activity trả HTTP %d: %s\n", response.StatusCode, strings.TrimSpace(string(responseBody)))
+		fmt.Fprintf(os.Stderr, "[bridge mcp] Activity trả HTTP %d (response body omitted)\n", response.StatusCode)
 	}
 }
 
