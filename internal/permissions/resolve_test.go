@@ -175,12 +175,15 @@ func TestGatekeeperConstraints(t *testing.T) {
 		t.Errorf("Expected AddGrant for projRoot to succeed, got: %v", err)
 	}
 
-	// 2. Grant sync to unrelated dir -> should fail
-	if err := gate.AddGrant(otherDir, []string{CapSync}); err == nil {
-		t.Errorf("Expected AddGrant sync on unrelated dir to fail")
+	// 2. Windows may grant Sync on any chosen folder outside the project.
+	if err := gate.AddGrant(otherDir, []string{CapSync}); err != nil {
+		t.Fatalf("Actual Windows grant on unrelated folder should work: %v", err)
+	}
+	if !gate.CheckAccess(filepath.Join(otherDir, "test.dll"), CapSync) {
+		t.Fatal("Granted Sync outside project was not effective")
 	}
 
-	// 3. Grant read on unrelated dir (e.g. AutoCAD logs) -> should succeed
+	// 3. Windows may later edit the same grant to Read-only (remove Sync).
 	if err := gate.AddGrant(otherDir, []string{CapRead}); err != nil {
 		t.Errorf("Expected AddGrant read on any dir to succeed, got: %v", err)
 	}
@@ -215,11 +218,19 @@ func TestGatekeeperConstraints(t *testing.T) {
 	if err := gate.AddGrant(addinSubdir, []string{CapSync}); err != nil {
 		t.Errorf("Expected sync grant under related_dirs to succeed, got: %v", err)
 	}
-	if err := gate.AddGrant(otherDir, []string{CapExecute}); err == nil {
-		t.Error("Expected execute grant outside project root to fail")
+	// Windows independently decides the scope of Execute and MCP grants.
+	if err := gate.AddGrant(otherDir, []string{CapExecute}); err != nil {
+		t.Errorf("Actual Windows execute grant outside repo must work: %v",err)
 	}
-	if err := gate.AddGrant(filepath.Join(projRoot, "nested"), []string{CapMCP}); err == nil {
-		t.Error("Expected MCP grant below (not at) project root to fail")
+	if !gate.CheckAccess(otherDir,CapExecute) {
+		t.Error("Execute grant outside project root not applied")
+	}
+	if err := os.MkdirAll(filepath.Join(projRoot,"nested"),0755); err != nil {t.Fatal(err)}
+	if err := gate.AddGrant(filepath.Join(projRoot, "nested"), []string{CapMCP}); err != nil {
+		t.Errorf("Actual Windows MCP grant under project root must work: %v",err)
+	}
+	if !gate.CheckAccess(filepath.Join(projRoot,"nested"),CapMCP) {
+		t.Error("MCP grant did not become effective")
 	}
 	if err := gate.RevokeGrant(projRoot); err != nil {
 		t.Fatal(err)
@@ -295,17 +306,21 @@ func TestGatekeeperPermissionRequest(t *testing.T) {
 	if err := gate.BeginRequest("req-2", rejectedPath, []string{CapRead}); err != nil {
 		t.Fatal(err)
 	}
-	if err := gate.RespondRequest("req-2", true, []string{CapSync}); err == nil {
-		t.Fatal("Expected an unrequested capability to be rejected")
+	// Request asked for Read, but Windows deliberately grants Sync instead.
+	if err := gate.RespondRequest("req-2", true, []string{CapSync}); err != nil {
+		t.Fatalf("Windows must be free to grant different capabilities: %v", err)
 	}
-	if len(gate.PendingRequests()) != 1 {
-		t.Fatal("Invalid response should leave the request pending")
-	}
-	if err := gate.RespondRequest("req-2", false, nil); err != nil {
-		t.Fatal(err)
+	if !gate.CheckAccess(filepath.Join(rejectedPath, "out.dll"), CapSync) {
+		t.Fatal("Actual Windows Sync grant not applied")
 	}
 	if gate.CheckAccess(filepath.Join(rejectedPath, "private.log"), CapRead) {
-		t.Fatal("Rejected permission request unexpectedly granted access")
+		t.Fatal("Read must not be implicitly granted")
+	}
+	if err := gate.RevokeGrant(rejectedPath); err != nil {
+		t.Fatal(err)
+	}
+	if gate.CheckAccess(filepath.Join(rejectedPath, "out.dll"), CapSync) {
+		t.Fatal("Revoked grant still effective")
 	}
 
 	if err := gate.BeginRequest("req-3", requestPath, []string{CapRead}); err != nil {

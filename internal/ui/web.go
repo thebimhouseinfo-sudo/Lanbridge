@@ -19,6 +19,7 @@ import (
 
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentlock"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/appcontrol"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/store"
 )
@@ -29,6 +30,12 @@ var embedFS embed.FS
 // UIState represents the real-time state broadcast to Web UI via SSE
 type UIState struct {
 	Role               string                  `json:"role"`
+	ProjectID          string                  `json:"project_id,omitempty"`
+	ProjectReady       bool                    `json:"project_ready"`
+	ProjectError       string                  `json:"project_error,omitempty"`
+	ProjectConfigs     []string                `json:"project_configs,omitempty"`
+	BlacklistEntries   []projectconfig.Rule    `json:"blacklist_entries,omitempty"`
+	BlacklistLocked    bool                    `json:"blacklist_locked"`
 	ListenAddr         string                  `json:"listen_addr"`
 	Connected          bool                    `json:"connected"`
 	RunningCommand     bool                    `json:"running_command"`
@@ -98,11 +105,23 @@ type WebServer struct {
 	onUnpair            func() error
 	onExit              func()
 	onHostConnect       func(address string) error
+	onProjectList       func() ([]string,error)
+	onProjectSetup      func(id,workspace,mcpCommand string) error
+	onProjectOpen       func(id string) error
+	onProjectSave       func() error
+	onProfileSaveAs     func(oldID,newID string) error
+	onProfileRename     func(oldID,newID string) error
+	onProfileDelete     func(id string) error
+	onBlacklistLock     func(locked bool) error
+	onBlacklistEdit     func(entries []projectconfig.Rule) error
 	onPermissionRespond func(id string, approved bool, capabilities []string) error
 	onGrantUpdate       func(path string, capabilities []string) error
 	onGrantRevoke       func(path string) error
 	onAppPermission     func(id string, allowed bool) error
 	onAppControl        func(id, action string) (string, error)
+	onAppAdd            func(name,path string) error
+	onAppRemove         func(id string) error
+	onAppCaps           func(id string,start,stop bool) error
 	onChatSend          func(text string) error
 	onAgentChatSend     func(text string) error
 	onMCPProviderChange func(context.Context, string) ([]MCPProviderState, error)
@@ -154,6 +173,35 @@ func (ws *WebServer) SetPairCodeHandler(onSubmit func(code string) error) {
 	ws.onPairCode = onSubmit
 }
 
+// SetProjectHandlers routes local profile actions to each machine's own
+// App Data. On Windows only the human UI opens permissions; Mac may also
+// expose an existing-only read-only Open to the local agent.
+func (ws *WebServer) SetProjectManagementHandlers(
+ copy func(oldID,newID string) error,
+ rename func(oldID,newID string) error,
+ del func(id string) error,
+) {
+ ws.onProfileSaveAs=copy;ws.onProfileRename=rename;ws.onProfileDelete=del
+}
+
+func (ws *WebServer) SetProjectSaveHandler(save func() error) {
+ ws.onProjectSave=save
+}
+
+func (ws *WebServer) SetProjectHandlers(
+ list func() ([]string,error),
+ setup func(id,workspace,mcpCommand string) error,
+ open func(string) error,
+ lock func(bool) error,
+ edit func([]projectconfig.Rule) error,
+) {
+ ws.onProjectList=list
+ ws.onProjectSetup=setup
+ ws.onProjectOpen=open
+ ws.onBlacklistLock=lock
+ ws.onBlacklistEdit=edit
+}
+
 // SetPermissionHandlers registers host-side permission review actions.
 func (ws *WebServer) SetPermissionHandlers(
 	onRespond func(id string, approved bool, capabilities []string) error,
@@ -171,6 +219,14 @@ func (ws *WebServer) SetAppHandlers(
 ) {
 	ws.onAppPermission = onPermission
 	ws.onAppControl = onControl
+}
+
+func (ws *WebServer) SetAppEditHandlers(
+ add func(name,path string) error,
+ remove func(id string) error,
+ caps func(id string,start,stop bool) error,
+) {
+ ws.onAppAdd=add;ws.onAppRemove=remove;ws.onAppCaps=caps
 }
 
 func (ws *WebServer) SetChatHandler(onSend func(text string) error) {
@@ -224,12 +280,15 @@ func (ws *WebServer) Start() {
 	mux.HandleFunc("/api/pair/submit", ws.handleSubmitPairCode)
 	mux.HandleFunc("/api/unpair", ws.handleUnpair)
 	mux.HandleFunc("/api/config/open", ws.handleOpenConfig)
+	mux.HandleFunc("/api/project/action", ws.handleProjectAction)
 	mux.HandleFunc("/api/exit", ws.handleExit)
 	mux.HandleFunc("/api/permissions/respond", ws.handlePermissionRespond)
 	mux.HandleFunc("/api/permissions/update", ws.handleGrantUpdate)
 	mux.HandleFunc("/api/permissions/revoke", ws.handleGrantRevoke)
 	mux.HandleFunc("/api/apps/permission", ws.handleAppPermission)
 	mux.HandleFunc("/api/apps/control", ws.handleAppControl)
+	mux.HandleFunc("/api/apps/edit", ws.handleAppEdit)
+	mux.HandleFunc("/api/windows/pick", ws.handleWindowsPicker)
 	mux.HandleFunc("/api/chat/send", ws.handleChatSend)
 	mux.HandleFunc("/api/mcp/chat/send", ws.handleMCPChatSend)
 	mux.HandleFunc("/api/mcp/activity", ws.handleMCPActivity)
@@ -470,6 +529,53 @@ func (ws *WebServer) handleUnpair(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+
+func (ws *WebServer) handleProjectAction(w http.ResponseWriter,r *http.Request) {
+ if !ws.checkToken(r) || r.Method!=http.MethodPost {
+  http.Error(w,"Forbidden",http.StatusForbidden);return
+ }
+ r.Body=http.MaxBytesReader(w,r.Body,1024*1024)
+ var req struct {
+  Action string `json:"action"`
+  ProjectID string `json:"project_id"`
+  NewID string `json:"new_id"`
+  Workspace string `json:"workspace"`
+  MCPCommand string `json:"mcp_command"`
+  Entries []projectconfig.Rule `json:"entries"`
+ }
+ if err:=json.NewDecoder(r.Body).Decode(&req);err!=nil{
+  http.Error(w,"invalid project action",http.StatusBadRequest);return
+ }
+ var err error
+ var ids []string
+ switch req.Action {
+ case "list":
+  if ws.onProjectList==nil {err=errors.New("config list unavailable")} else {ids,err=ws.onProjectList()}
+ case "setup":
+  if ws.onProjectSetup==nil {err=errors.New("project setup unavailable")} else {err=ws.onProjectSetup(req.ProjectID,req.Workspace,req.MCPCommand)}
+ case "open":
+  if ws.onProjectOpen==nil {err=errors.New("project open unavailable")} else {err=ws.onProjectOpen(req.ProjectID)}
+ case "save":
+  if ws.onProjectSave==nil {err=errors.New("Windows project save unavailable")} else {err=ws.onProjectSave()}
+ case "save_as":
+  if ws.onProfileSaveAs==nil {err=errors.New("profile Save As unavailable")}else{err=ws.onProfileSaveAs(req.ProjectID,req.NewID)}
+ case "rename":
+  if ws.onProfileRename==nil{err=errors.New("profile rename unavailable")}else{err=ws.onProfileRename(req.ProjectID,req.NewID)}
+ case "delete":
+  if ws.onProfileDelete==nil{err=errors.New("profile delete unavailable")}else{err=ws.onProfileDelete(req.ProjectID)}
+ case "lock","unlock":
+  if ws.onBlacklistLock==nil {err=errors.New("Mac blacklist UI unavailable")} else {err=ws.onBlacklistLock(req.Action=="lock")}
+ case "edit":
+  if ws.onBlacklistEdit==nil {err=errors.New("Mac blacklist editing unavailable")} else {err=ws.onBlacklistEdit(req.Entries)}
+ default:
+  http.Error(w,"unknown project action",http.StatusBadRequest);return
+ }
+ if err!=nil {http.Error(w,err.Error(),http.StatusBadRequest);return}
+ if ids==nil {ids=[]string{}}
+ w.Header().Set("Content-Type","application/json")
+ _=json.NewEncoder(w).Encode(map[string]any{"ok":true,"projects":ids})
+}
+
 func (ws *WebServer) handleOpenConfig(w http.ResponseWriter, r *http.Request) {
 	if !ws.checkToken(r) || r.Method != http.MethodPost {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -484,6 +590,64 @@ func (ws *WebServer) handleOpenConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+
+func (ws *WebServer) handleAppEdit(w http.ResponseWriter,r *http.Request) {
+ if !ws.checkToken(r)||r.Method!=http.MethodPost {
+  http.Error(w,"Forbidden",http.StatusForbidden);return
+ }
+ r.Body=http.MaxBytesReader(w,r.Body,64*1024)
+ var req struct {
+  Action string `json:"action"`
+  ID string `json:"id"`
+  Name string `json:"name"`
+  Path string `json:"path"`
+  Start bool `json:"start"`
+  Stop bool `json:"stop"`
+ }
+ if err:=json.NewDecoder(r.Body).Decode(&req);err!=nil{
+  http.Error(w,"bad app request",http.StatusBadRequest);return
+ }
+ var err error
+ switch req.Action{
+ case "add":
+  if ws.onAppAdd==nil{err=errors.New("Windows app add unavailable")}else{err=ws.onAppAdd(req.Name,req.Path)}
+ case "remove":
+  if ws.onAppRemove==nil{err=errors.New("Windows app remove unavailable")}else{err=ws.onAppRemove(req.ID)}
+ case "caps":
+  if ws.onAppCaps==nil{err=errors.New("Windows app permission edit unavailable")}else{err=ws.onAppCaps(req.ID,req.Start,req.Stop)}
+ default:
+  http.Error(w,"unknown app action",http.StatusBadRequest);return
+ }
+ if err!=nil{http.Error(w,err.Error(),http.StatusBadRequest);return}
+ w.WriteHeader(http.StatusOK)
+}
+
+// Windows native picker is invoked only by a local Windows UI button.
+// The browser itself cannot reveal absolute OS folder paths.
+func (ws *WebServer) handleWindowsPicker(w http.ResponseWriter,r *http.Request) {
+ if !ws.checkToken(r)||r.Method!=http.MethodPost{http.Error(w,"Forbidden",http.StatusForbidden);return}
+ if runtime.GOOS!="windows" || ws.state.Role!="Host (Windows)"{
+  http.Error(w,"Windows native picker unavailable",http.StatusNotImplemented);return
+ }
+ kind:=r.URL.Query().Get("kind")
+ var script string
+ switch kind{
+ case "folder":
+  script=`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; if($d.ShowDialog() -eq 'OK'){Write-Output $d.SelectedPath}`
+ case "app":
+  script=`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = 'Executable (*.exe)|*.exe|All files (*.*)|*.*'; if($d.ShowDialog() -eq 'OK'){Write-Output $d.FileName}`
+ default:
+  http.Error(w,"invalid picker kind",http.StatusBadRequest);return
+ }
+ ctx,cancel:=context.WithTimeout(r.Context(),90*time.Second)
+ defer cancel()
+ cmd:=exec.CommandContext(ctx,"powershell.exe","-NoProfile","-STA","-WindowStyle","Hidden","-Command",script)
+ output,err:=cmd.CombinedOutput()
+ if err!=nil{http.Error(w,"Windows picker unavailable: "+err.Error(),http.StatusServiceUnavailable);return}
+ w.Header().Set("Content-Type","application/json")
+ _=json.NewEncoder(w).Encode(map[string]string{"path":strings.TrimSpace(string(output))})
 }
 
 func (ws *WebServer) handleExit(w http.ResponseWriter, r *http.Request) {

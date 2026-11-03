@@ -26,6 +26,11 @@ jobs:
         run: go test -count=1 ./...
       - name: Vet
         run: go vet ./...
+      - name: Check embedded UI JavaScript syntax
+        run: node tools/check-ui-js.cjs
+      - name: Race detector (macOS)
+        if: runner.os == 'macOS'
+        run: go test -race -count=1 ./...
       - name: Build Windows GUI
         if: runner.os == 'Windows'
         shell: pwsh
@@ -73,14 +78,20 @@ jobs:
         with:
           name: testbridge-macos-arm64
           path: macos
-      - name: Create test release
+      - name: Create uniquely versioned local test release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          if gh release view test-2026-11-03 >/dev/null 2>&1; then
-            echo 'Test release already exists; leaving it unchanged.'
+          set -euo pipefail
+          test_tag="test-${GITHUB_SHA:0:12}"
+          (cd windows && zip -q ../testbridge-windows-amd64.zip bridge.exe install.ps1)
+          sha256sum testbridge-windows-amd64.zip macos/testbridge-macos-arm64.zip | sed 's|macos/||' > SHA256SUMS.txt
+          if gh release view "$test_tag" >/dev/null 2>&1; then
+            echo "Test package for this exact source SHA is already published: $test_tag"
             exit 0
           fi
-          (cd windows && zip -q ../testbridge-windows-amd64.zip bridge.exe install.ps1)
-          gh release create test-2026-11-03 testbridge-windows-amd64.zip macos/testbridge-macos-arm64.zip --target "$GITHUB_SHA" --prerelease --title "Test build 2026-11-03" --notes "Test build; two-machine acceptance is pending."
+          gh release create "$test_tag" testbridge-windows-amd64.zip macos/testbridge-macos-arm64.zip SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "TestBridge local test build ${GITHUB_SHA:0:12}" \
+            --notes "Source commit: $GITHUB_SHA. CI Windows/macOS passed. Native two-machine acceptance remains UNVERIFIED. See SHA256SUMS.txt."

@@ -1,15 +1,15 @@
 # LAN Test Bridge
 
-Bridge kết nối máy Mac Apple Silicon với máy Windows 10/11 trên cùng mạng Wi-Fi để thử dự án: trao đổi chat, cấp quyền đọc/sync, chạy các lệnh build đã cấu hình và chuyển tiếp MCP của dự án. Đây là bản thử cá nhân; kiểm thử trên hai máy thật và tích hợp CAI vẫn đang chờ thực hiện.
+Bridge kết nối máy Mac Apple Silicon với máy Windows 10/11 trên cùng mạng Wi-Fi để thử dự án: trao đổi chat, cấp quyền đọc/sync, chạy build script hoặc Shell Command theo Windows Grant và chuyển tiếp MCP của bất kỳ dự án Windows nào. Hai file config dự án được lưu độc lập trên từng máy; kiểm thử trên hai máy thật vẫn là bước nghiệm thu cuối.
 
 ## Cài bản thử qua shell
 
-Bản `test-2026-11-03` là bản thử, chưa được nghiệm thu trên hai máy thật. Mỗi lệnh tải gói từ GitHub vào thư mục tạm riêng, giải nén rồi chạy installer. Cần có kết nối Internet khi cài.
+Bản thử được phát hành theo SHA của `main`, với tag dạng `test-<12 ký tự SHA>`. Hai lệnh dưới đây tự lấy **release thử nghiệm mới nhất** từ GitHub, tải gói vào thư mục tạm rồi cài. Cần Internet. Nghiệm thu máy thật vẫn chờ thực hiện.
 
 **Windows 10/11 x64:** Mở PowerShell và chạy một lệnh:
 
 ```powershell
-& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest 'https://github.com/thebimhouseinfo-sudo/testbridge/releases/download/test-2026-11-03/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1" }
+& { $ErrorActionPreference = 'Stop'; $releases = @(Invoke-RestMethod 'https://api.github.com/repos/thebimhouseinfo-sudo/testbridge/releases?per_page=30' | Where-Object { $_.tag_name -match '^test-[0-9a-f]{12}$' } | Select-Object -First 1); if (-not $releases) { throw 'No main-SHA test release found' }; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest "https://github.com/thebimhouseinfo-sudo/testbridge/releases/download/$($releases[0].tag_name)/testbridge-windows-amd64.zip" -OutFile "$d\package.zip"; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1" }
 ```
 
 Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut và tạo `%APPDATA%\LanBridge\config.json` nếu chưa có. Chạy shortcut, tìm icon Bridge trong khay hệ thống, chọn **Mở giao diện**. Khi Windows Firewall hỏi, cho phép trên mạng Private tin cậy. Cài lại giữ file config hiện có.
@@ -17,21 +17,26 @@ Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut 
 **Mac Apple Silicon:** Mở Terminal và chạy một lệnh:
 
 ```sh
-d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/testbridge/releases/download/test-2026-11-03/testbridge-macos-arm64.zip' -o "$d/package.zip" && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
+tag="$(curl -fsSL 'https://api.github.com/repos/thebimhouseinfo-sudo/testbridge/releases?per_page=30' | grep -m1 -oE '"tag_name": "test-[a-f0-9]{12}"' | cut -d'"' -f4)" && [ -n "$tag" ] && d="$(mktemp -d)" && curl -fL "https://github.com/thebimhouseinfo-sudo/testbridge/releases/download/$tag/testbridge-macos-arm64.zip" -o "$d/package.zip" && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
 ```
 
 Installer chép app vào `~/Applications/LAN Bridge.app`, chép lệnh `bridge` vào `~/.local/bin` và mở app. Chọn **Mở giao diện** từ icon trên thanh menu; cho phép Local Network nếu macOS hỏi. Nếu macOS chặn app chưa được ký, làm theo thông báo của hệ điều hành trước khi tiếp tục.
 
-Gói và kết quả build có thể xem tại [GitHub Releases](https://github.com/thebimhouseinfo-sudo/testbridge/releases/tag/test-2026-11-03) và [GitHub Actions](https://github.com/thebimhouseinfo-sudo/testbridge/actions).
+Workflow chỉ xuất bản package sau khi CI của `main` PASS. Mỗi release có tag theo SHA của source và file `SHA256SUMS.txt` để xác minh gói. Xem [GitHub Releases](https://github.com/thebimhouseinfo-sudo/testbridge/releases) và [GitHub Actions](https://github.com/thebimhouseinfo-sudo/testbridge/actions). **Thoát cả hai Bridge và phiên MCP trước khi cài lại**; installer giữ App Data/config cũ. Không dùng release cũ `test-2026-11-03`.
 
 Giao diện ưu tiên mở cửa sổ Edge hoặc Chrome cỡ ban đầu khoảng 500 × 900; có thể thay đổi kích thước. Khi không tìm thấy hoặc không khởi chạy được, Bridge thử trình duyệt mặc định. Đóng cửa sổ chỉ đóng giao diện: chọn **Thoát** trong Bridge để kết thúc phiên.
 
-## Kết nối và cấu hình agent
+## Kết nối và cấu hình agent (v2)
 
-1. Mở Bridge trên cả hai máy cùng Wi-Fi. Trên Windows vào **Settings** tạo mã ghép nối; trên Mac tìm host hoặc nhập IP:port hiển thị trên Windows, rồi nhập mã. Nếu discovery không tìm thấy, dùng địa chỉ thủ công; cổng mặc định là `54823`.
-2. Trong Settings trên Mac chọn **Codex** hoặc **Claude Code** để Bridge đăng ký MCP `lanbridge` ở user scope. Chỉ một provider hoạt động; đóng phiên MCP đang dùng trước khi chuyển. Xem [hướng dẫn Codex và đăng ký thủ công](docs/CODEX_SETUP.md).
-3. Trên Windows, chỉnh `%APPDATA%\LanBridge\config.json` để khai báo project, các lệnh cố định, MCP và app cần thử; dùng nút mở cấu hình/tải lại trong Settings. Cấu hình mới mặc định chưa có project hay app. Mẫu trường và ràng buộc có trong [Technical Proposal](docs/TECHNICAL_PROPOSAL.md).
-4. Khi agent yêu cầu quyền, xem và Accept/Reject trên Windows. Sync chỉ dành cho project hoặc thư mục liên quan đã cấu hình. Không chia sẻ mã ghép nối hay URL giao diện có token.
+1. Mở Bridge trên **cả hai máy** cùng Wi-Fi. Windows tạo mã ghép nối trong Settings; Mac tìm host hoặc nhập IP:port rồi pairing. Cổng mặc định là `54823`.
+2. **Windows — Setup / Permission Config:** trong Settings nhập Project ID (ví dụ `my-app`), Workspace Windows và executable MCP nếu có; tạo file Permission Config lần đầu. Grant/Edit/Revoke folder và program ngay trên Windows UI, không phải chỉnh `config.json` thủ công. Windows có thể cấp nhiều, ít hoặc khác quyền Mac yêu cầu. **Sau khi kết nối, Windows user phải tự Open config đã lưu.**
+3. **Mac — Blacklist Config:** trong Settings dùng **First-time Setup** với **cùng Project ID** để tạo file blacklist rỗng trong Mac App Data. Sau đó Mac user hoặc agent có thể Open file tồn tại; agent `config_load` chỉ đọc, không tạo mới hoặc chỉnh file. Mac UI có **Lock/Unlock thủ công**; agent chỉ sửa blacklist theo yêu cầu khi user đã Unlock. Danh sách mặc định rỗng, không chặn tool nào.
+4. **Chỉ khi hai config thực sự load thành công và Project ID khớp** mới có `PROJECT_READY`. File blacklist **thiếu hoặc chưa load** sẽ chặn Read/Sync/Exec/App/MCP, dù Windows đã Grant. Hai file config **không sync hoặc copy qua LAN**. Mỗi lần mở Bridge, Windows user Open lại config và Mac/agent Open lại blacklist.
+5. Mac Settings chọn **Codex** hoặc **Claude Code** để đăng ký MCP `lanbridge` ở user scope. Chỉ một provider hoạt động. Xem [hướng dẫn Codex](docs/CODEX_SETUP.md). Khi Windows Grant Exec, agent có thể chạy named build command hoặc Shell argv theo nhu cầu; Sync tối đa 5 MB/request tới thư mục Windows đã Grant, không đòi thuộc `projects`/`related_dirs`.
+
+**Quan trọng khi cài lại:** Installer giữ dữ liệu Bridge hiện có trong App Data. Legacy `config.json` vẫn có thể tồn tại vì tương thích, nhưng project workflow v2 cần **Windows Permission Config** và **Mac Command Blacklist Config** riêng. Không dùng CAI/RAI hoặc AutoCAD OPEN làm blacklist mặc định.
+
+Không chia sẻ pairing code hoặc URL giao diện có token. Chỉ sử dụng trên LAN tin cậy; các giới hạn blacklist là chính sách workflow theo yêu cầu user, không phải sandbox chống mọi lệnh Shell.
 
 ## Danh sách thử trên hai máy
 

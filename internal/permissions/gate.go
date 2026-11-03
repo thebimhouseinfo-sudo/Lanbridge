@@ -112,7 +112,8 @@ func (g *Gatekeeper) PendingRequests() []PermissionRequest {
 	return requests
 }
 
-// RespondRequest records the host user's decision and grants only selected requested capabilities.
+// RespondRequest persists the Windows user's ACTUAL grant. The host may grant
+// more or fewer capabilities than the Mac requested.
 func (g *Gatekeeper) RespondRequest(id string, approved bool, capabilities []string) error {
 	g.pendingMu.Lock()
 	pending, exists := g.pending[id]
@@ -134,10 +135,10 @@ func (g *Gatekeeper) RespondRequest(id string, approved bool, capabilities []str
 			return errors.New("select at least one capability or reject the request")
 		}
 		for _, capability := range selected {
-			if !hasCapability(pending.request.Capabilities, capability) {
+			if !isKnownCapability(capability) {
 				pending.resolving = false
 				g.pendingMu.Unlock()
-				return fmt.Errorf("capability %q was not requested", capability)
+				return fmt.Errorf("unknown capability: %s", capability)
 			}
 		}
 	}
@@ -225,6 +226,19 @@ func (g *Gatekeeper) HasPermission(candidatePath string, capability string) bool
 	return g.CheckAccess(candidatePath, capability)
 }
 
+// HasCapability reports a project-wide capability (Exec or MCP) from
+// Windows's currently selected Actual Grants. The host activates one
+// permission profile per project, so no implicit project-root restriction
+// is needed for these non-file-scoped capabilities.
+func (g *Gatekeeper) HasCapability(capability string) bool {
+ g.mu.RLock()
+ defer g.mu.RUnlock()
+ for _,grant:=range g.grants{
+  if hasCapability(grant.Capabilities,capability){return true}
+ }
+ return false
+}
+
 // ResolveAccess returns the canonical candidate path when a grant authorizes it.
 func (g *Gatekeeper) ResolveAccess(candidatePath string, capability string) (string, error) {
 	if !filepath.IsAbs(candidatePath) {
@@ -262,62 +276,15 @@ func (g *Gatekeeper) ResolveAccess(candidatePath string, capability string) (str
 	return "", ErrAccessDenied
 }
 
-// ValidateGrantConstraints checks project constraints from CRITERIA §5
+// ValidateGrantConstraints validates a Windows user-selected grant. Project
+// roots/related_dirs are NOT a second authorization gate for Read/Sync/Exec/MCP.
 func (g *Gatekeeper) ValidateGrantConstraints(path string, caps []string) error {
-	canonical, err := canonicalDirectory(path)
-	if err != nil {
-		return err
-	}
-	if g.cfg == nil {
-		return errors.New("host config is required to validate permission grants")
-	}
-	if len(caps) == 0 {
-		return errors.New("at least one capability must be granted")
-	}
-
-	for _, c := range caps {
-		switch c {
-		case CapSync:
-			// Sync is restricted to project roots and configured related directories.
-			allowed := false
-			for _, p := range g.cfg.Projects {
-				if isWithinConfiguredDirectory(p.Root, canonical) {
-					allowed = true
-					break
-				}
-				for _, relDir := range p.RelatedDirs {
-					if isWithinConfiguredDirectory(relDir, canonical) {
-						allowed = true
-						break
-					}
-				}
-				if allowed {
-					break
-				}
-			}
-			if !allowed {
-				return errors.New("sync capability is restricted only to project root or related_dirs")
-			}
-		case CapExecute, CapMCP:
-			// Execute and MCP grants are attached to a project root.
-			allowed := false
-			for _, p := range g.cfg.Projects {
-				root, rootErr := canonicalDirectory(p.Root)
-				if rootErr == nil && samePath(root, canonical) {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return errors.New("execute and mcp capabilities can only be granted to project root")
-			}
-		case CapRead:
-			// read is allowed for any directory user approves
-		default:
-			return fmt.Errorf("unknown capability: %s", c)
-		}
-	}
-	return nil
+ if _,err:=canonicalDirectory(path);err!=nil{return err}
+ if len(caps)==0{return errors.New("at least one capability must be granted")}
+ for _,capability:=range caps {
+  if !isKnownCapability(capability){return fmt.Errorf("unknown capability: %s",capability)}
+ }
+ return nil
 }
 
 // AddGrant adds an approved grant and persists to state.json
@@ -363,6 +330,30 @@ func (g *Gatekeeper) AddGrant(path string, caps []string) error {
 	}
 	g.grants = next
 	return nil
+}
+
+// ReplaceGrants activates a Windows-user-selected profile as the ONLY
+// effective permission set. Validate the whole profile before persisting so
+// a malformed grant never leaves a partially upgraded permission state.
+func (g *Gatekeeper) ReplaceGrants(entries []store.PermissionGrant) error {
+ validated:=make([]store.PermissionGrant,0,len(entries))
+ for _,entry:=range entries {
+  if err:=g.ValidateGrantConstraints(entry.Path,entry.Capabilities);err!=nil{return err}
+  path,err:=canonicalDirectory(entry.Path);if err!=nil{return err}
+  for _,existing:=range validated {
+   if samePath(existing.Path,path){return fmt.Errorf("duplicate grant for %s",path)}
+  }
+  validated=append(validated,store.PermissionGrant{
+   Path:path,Capabilities:append([]string(nil),entry.Capabilities...),GrantedAt:entry.GrantedAt,
+  })
+ }
+ g.mu.Lock()
+ defer g.mu.Unlock()
+ state,err:=g.store.Load();if err!=nil{return err}
+ state.Permissions=validated
+ if err:=g.store.Save(state);err!=nil{return err}
+ g.grants=validated
+ return nil
 }
 
 // RevokeGrant removes permissions for a path

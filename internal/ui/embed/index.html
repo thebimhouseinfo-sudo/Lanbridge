@@ -190,6 +190,62 @@
     <section class="section">
       <h2>Quyền đã cấp</h2>
       <div id="permissionGrants"><p class="empty-state">Chưa cấp quyền nào.</p></div>
+      <div id="windowsFolderAdd">
+        <p class="hint">Windows user chủ động Grant Folder (không cần Mac request):</p>
+        <div class="address-form">
+          <input id="folderGrantPath" type="text" placeholder="C:\Project\Folder" aria-label="Windows folder grant">
+          <button type="button" class="btn-secondary" onclick="pickWindowsPath('folder','folderGrantPath')">Browse…</button>
+        </div>
+        <div class="cap-list" style="margin:8px 0">
+          <label><input type="checkbox" class="newFolderCap" value="read" checked> Read</label>
+          <label><input type="checkbox" class="newFolderCap" value="sync"> Sync</label>
+          <label><input type="checkbox" class="newFolderCap" value="execute"> Exec</label>
+          <label><input type="checkbox" class="newFolderCap" value="mcp"> MCP</label>
+        </div>
+        <button type="button" class="btn-primary" onclick="addWindowsFolderGrant()">Grant Folder</button>
+        <p id="folderGrantAction" class="form-status" role="status"></p>
+      </div>
+    </section>
+
+    <section class="section" id="projectProfilesSection">
+      <h2 id="profileHeading">Project Config</h2>
+      <p class="hint" id="projectProfileHint"></p>
+      <p class="hint" id="projectReadyStatus" role="status">CONFIG_NOT_OPEN</p>
+      <div class="address-form">
+        <select id="projectProfileSelect" aria-label="Cấu hình dự án đã lưu" style="min-width: 150px; flex: 1">
+          <option value="">Chọn config đã lưu</option>
+        </select>
+        <button class="btn-primary" type="button" onclick="openProjectProfile()">Open đã lưu</button>
+        <button id="profileSaveButton" class="btn-secondary" type="button" onclick="saveWindowsProfile()">Save</button>
+      </div>
+      <div class="address-form" style="margin-top: 10px;">
+        <input id="projectProfileID" type="text" placeholder="Project ID" aria-label="Project ID cho setup lần đầu">
+        <button class="btn-secondary" type="button" onclick="setupProjectProfile()">First-time Setup</button>
+      </div>
+      <div id="windowsWorkspaceSettings" style="margin-top:10px">
+        <p class="hint">Windows workspace và executable MCP của dự án (tạo mới không cần sửa JSON):</p>
+        <input id="projectWorkspace" type="text" style="width:100%;margin-bottom:6px" placeholder="D:\Dev\MyApp">
+        <input id="projectMCPCommand" type="text" style="width:100%" placeholder="D:\Dev\MyApp\mcp.exe (tùy chọn)">
+      </div>
+      <div class="btn-group" style="margin-top:8px">
+        <button class="btn-secondary" type="button" onclick="manageProjectProfile('save_as')">Save As</button>
+        <button class="btn-secondary" type="button" onclick="manageProjectProfile('rename')">Rename</button>
+        <button class="btn-danger" type="button" onclick="manageProjectProfile('delete')">Delete</button>
+      </div>
+      <p id="projectProfileAction" class="form-status" role="status"></p>
+      <div id="macBlacklistSection" style="display:none; margin-top:12px">
+        <h3>Command Blacklist (chỉ lưu trên Mac)</h3>
+        <p class="hint" id="blacklistStatus">Đang chờ load config.</p>
+        <div class="btn-group">
+          <button type="button" id="blacklistLockButton" class="btn-secondary" onclick="toggleBlacklistLock()">Lock</button>
+        </div>
+        <label for="blacklistEditor" class="hint">Entries JSON (mảng rules, ban đầu []):</label>
+        <textarea id="blacklistEditor" rows="5" style="width:100%; font-family:monospace" spellcheck="false" placeholder="[]"></textarea>
+        <div class="btn-group">
+          <button type="button" id="blacklistSaveButton" class="btn-primary" onclick="saveBlacklistEntries()">Save Blacklist</button>
+        </div>
+        <p class="hint">Agent chỉ được sửa theo yêu cầu user khi bạn Unlock trên Mac. Open config không chỉnh sửa file.</p>
+      </div>
     </section>
 
     <section id="configErrorSection" class="section" style="display: none;">
@@ -205,7 +261,17 @@
     <section id="appSection" class="section" style="display: none;">
       <h2>Start/Stop ứng dụng</h2>
       <p class="hint">Quyền bật ở đây chỉ có hiệu lực trong phiên Bridge hiện tại.</p>
-      <div id="appList"><p class="empty-state">Không có ứng dụng nào trong config.json.</p></div>
+      <div id="appList"><p class="empty-state">Chưa có ứng dụng trong config đã chọn.</p></div>
+      <div id="windowsProgramAdd">
+        <p class="hint">Add Program trên Windows:</p>
+        <input id="newProgramName" type="text" placeholder="Program name" aria-label="Program name" style="width:100%;margin-bottom:6px">
+        <div class="address-form">
+          <input id="newProgramPath" type="text" placeholder="C:\Program Files\MyApp\App.exe" aria-label="EXE path">
+          <button type="button" class="btn-secondary" onclick="pickWindowsPath('app','newProgramPath')">Browse EXE…</button>
+        </div>
+        <button type="button" class="btn-primary" onclick="addWindowsProgram()" style="margin-top:8px">Add Program</button>
+        <p id="programAction" class="form-status" role="status"></p>
+      </div>
     </section>
 
     <section id="mcpInstructions" class="section" style="display: none;">
@@ -301,7 +367,8 @@
         badge.style.background = 'rgba(52, 199, 89, 0.2)';
         badge.style.color = 'var(--green)';
         dot.style.background = 'var(--green)';
-        text.textContent = s.running_command ? 'Đang chạy build/test' : 'Đã kết nối, sẵn sàng';
+        text.textContent = s.running_command ? 'Đang chạy build/test'
+          : (s.project_ready ? 'PROJECT_READY — sẵn sàng làm việc' : 'Đã kết nối — cần mở Config dự án');
       } else if (s.waiting_pair) {
         badge.style.background = 'rgba(255, 159, 10, 0.2)';
         badge.style.color = 'var(--orange)';
@@ -323,6 +390,8 @@
       renderPermissionRequests(s.pending_permissions || []);
       renderPermissionGrants(s.permissions || []);
       document.getElementById('pendingPermissions').parentElement.style.display = isClient ? 'none' : 'block';
+      document.getElementById('windowsFolderAdd').style.display = isClient ? 'none' : 'block';
+      document.getElementById('windowsProgramAdd').style.display = isClient ? 'none' : 'block';
       document.getElementById('projectSection').style.display = isClient ? 'none' : 'block';
       document.getElementById('appSection').style.display = isClient ? 'none' : 'block';
       document.getElementById('mcpInstructions').style.display = isClient ? 'block' : 'none';
@@ -353,6 +422,7 @@
         })[activity && activity.status] || (activity ? activity.status : 'Chưa có hoạt động');
         activityBanner.dataset.status = activity ? (activity.status || '') : 'idle';
       }
+      renderProjectProfiles(s, isClient);
       renderProjects(s.projects || []);
       renderApps(s.apps || []);
       renderChatMessages(s.chat_messages || []);
@@ -392,6 +462,108 @@
         body: JSON.stringify(body)
       });
       if (!response.ok) throw new Error(await response.text());
+    }
+
+    let currentProfileState = {};
+    function renderProjectProfiles(s, isClient) {
+      currentProfileState = s;
+      document.getElementById('profileHeading').textContent = isClient
+        ? 'Mac — Command Blacklist Config'
+        : 'Windows — Folder / Program Permission Config';
+      document.getElementById('projectProfileHint').textContent = isClient
+        ? 'Agent được Open config đã có, chỉ đọc. First-time Setup tạo blacklist rỗng; config không sync sang Windows.'
+        : 'Windows user tự Open Permission Config đã lưu. Grant/Edit/Revoke thư mục và chương trình chỉ thực hiện tại đây.';
+      const select = document.getElementById('projectProfileSelect');
+      const previous = select.value;
+      select.replaceChildren(new Option('Chọn config đã lưu', ''));
+      (s.project_configs || []).forEach(id => select.add(new Option(id, id)));
+      if ((s.project_configs || []).includes(previous)) select.value = previous;
+      else if (s.project_id) select.value = s.project_id;
+      document.getElementById('projectReadyStatus').textContent = s.project_ready
+        ? 'PROJECT_READY — ' + (s.project_id || '')
+        : (s.project_error || 'CONFIG_NOT_OPEN — hai máy cần mở đúng Project ID');
+      document.getElementById('macBlacklistSection').style.display = isClient ? 'block' : 'none';
+      document.getElementById('windowsWorkspaceSettings').style.display = isClient ? 'none' : 'block';
+      document.getElementById('profileSaveButton').style.display = isClient ? 'none' : 'inline-block';
+      document.getElementById('profileSaveButton').disabled = !s.project_id;
+      if (!isClient) return;
+      const locked = Boolean(s.blacklist_locked);
+      const loaded = Boolean(s.project_id);
+      const entries = s.blacklist_entries || [];
+      document.getElementById('blacklistStatus').textContent = loaded
+        ? (locked ? 'Locked' : 'Unlocked') + ' · ' + entries.length + ' rule(s)'
+        : 'Chưa load blacklist. Thiếu hoặc chưa mở file → không được làm việc.';
+      document.getElementById('blacklistLockButton').textContent = locked ? 'Unlock (manual)' : 'Lock (manual)';
+      document.getElementById('blacklistLockButton').disabled = !loaded;
+      document.getElementById('blacklistSaveButton').disabled = !loaded || locked;
+      const editor = document.getElementById('blacklistEditor');
+      editor.disabled = !loaded || locked;
+      if (document.activeElement !== editor) editor.value = JSON.stringify(entries, null, 2);
+    }
+
+    async function projectAction(action, extra = {}) {
+      const response = await fetch('/api/project/action?t=' + encodeURIComponent(token), {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({action, ...extra})
+      });
+      if (!response.ok) throw new Error((await response.text()).trim());
+      return response.json();
+    }
+    async function setupProjectProfile() {
+      const project_id = document.getElementById('projectProfileID').value.trim();
+      if (!project_id) {alert('Nhập Project ID trước khi setup.'); return;}
+      try {
+        await projectAction('setup', {project_id,
+          workspace: document.getElementById('projectWorkspace').value.trim(),
+          mcp_command: document.getElementById('projectMCPCommand').value.trim()
+        });
+        document.getElementById('projectProfileAction').textContent = 'Đã lưu config cục bộ. Hãy Open đúng project trên cả hai máy.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+    async function openProjectProfile() {
+      const project_id = document.getElementById('projectProfileSelect').value;
+      if (!project_id) {alert('Chọn config đã lưu.'); return;}
+      try {
+        await projectAction('open', {project_id});
+        document.getElementById('projectProfileAction').textContent = 'Đã Open: ' + project_id;
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+    async function saveWindowsProfile() {
+      try {
+        await projectAction('save');
+        document.getElementById('projectProfileAction').textContent = 'Windows Permission Config đã lưu.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+    async function manageProjectProfile(action) {
+      const project_id = document.getElementById('projectProfileSelect').value;
+      const new_id = document.getElementById('projectProfileID').value.trim();
+      if (!project_id) {alert('Chọn Config đã lưu trước.');return;}
+      if (action !== 'delete' && !new_id) {alert('Nhập Project ID mới cho Save As/Rename.');return;}
+      if ((action === 'delete' || action === 'rename') &&
+          !confirm('Thao tác ' + action + ' trên config cục bộ ' + project_id +
+            '. Config trên máy kia KHÔNG tự thay đổi. Tiếp tục?')) return;
+      try {
+        await projectAction(action,{project_id,new_id});
+        document.getElementById('projectProfileAction').textContent =
+          'Đã ' + action + ' config cục bộ. Hai máy cần mở đúng Project ID mới để làm việc.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+
+    async function toggleBlacklistLock() {
+      try {
+        await projectAction(currentProfileState.blacklist_locked ? 'unlock' : 'lock');
+        document.getElementById('projectProfileAction').textContent = 'Trạng thái Lock/Unlock đã thay đổi trên Mac.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+    async function saveBlacklistEntries() {
+      let entries;
+      try {entries = JSON.parse(document.getElementById('blacklistEditor').value);}
+      catch(e) {alert('JSON không hợp lệ: ' + e.message);return;}
+      if (!Array.isArray(entries)) {alert('Entries phải là một mảng JSON.');return;}
+      try {
+        await projectAction('edit',{entries});
+        document.getElementById('projectProfileAction').textContent = 'Blacklist đã được cập nhật.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
     }
 
     function renderMCPProviderControls() {
@@ -577,11 +749,43 @@
       });
     }
 
+    async function pickWindowsPath(kind, targetId) {
+      try {
+        const res = await fetch('/api/windows/pick?kind=' + encodeURIComponent(kind) + '&t=' + encodeURIComponent(token), {
+          method:'POST'
+        });
+        if (!res.ok) throw new Error((await res.text()).trim());
+        const data = await res.json();
+        if (data.path) document.getElementById(targetId).value = data.path;
+      } catch(e) { alert('Không chọn được đường dẫn Windows: ' + e.message); }
+    }
+    async function addWindowsFolderGrant() {
+      const path = document.getElementById('folderGrantPath').value.trim();
+      const capabilities = Array.from(document.querySelectorAll('input.newFolderCap:checked')).map(e => e.value);
+      if (!path || !capabilities.length) { alert('Chọn folder và capability.'); return; }
+      try {
+        await postJSON('/api/permissions/update', {path,capabilities});
+        document.getElementById('folderGrantAction').textContent = 'Windows đã Grant: ' + path;
+      } catch(e) {document.getElementById('folderGrantAction').textContent=e.message;}
+    }
+    async function addWindowsProgram() {
+      const name = document.getElementById('newProgramName').value.trim();
+      const path = document.getElementById('newProgramPath').value.trim();
+      if (!name || !path) {alert('Nhập tên và EXE path.');return;}
+      try {
+        await postJSON('/api/apps/edit',{action:'add',name,path});
+        document.getElementById('programAction').textContent = 'Đã thêm chương trình, chọn Start/Stop grants và Save Config.';
+      } catch(e) {document.getElementById('programAction').textContent=e.message;}
+    }
+
     function renderApps(apps) {
       const container = document.getElementById('appList');
       container.replaceChildren();
       if (!apps.length) {
-        container.innerHTML = '<p class="empty-state">Không có ứng dụng nào trong config.json.</p>';
+        const empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'Chưa có ứng dụng. Windows user có thể Add Program bên dưới.';
+        container.appendChild(empty);
         return;
       }
       apps.forEach(app => {
@@ -592,54 +796,62 @@
         const path = document.createElement('span');
         path.className = 'app-path';
         path.textContent = app.path || '(không có đường dẫn)';
-        const permissionLabel = document.createElement('label');
-        permissionLabel.className = 'cap-list';
-        const permission = document.createElement('input');
-        permission.type = 'checkbox';
-        permission.checked = Boolean(app.can_start_stop);
-        permissionLabel.append(permission, document.createTextNode('Cho phép Start/Stop'));
         const status = document.createElement('p');
         status.className = 'form-status';
-        permission.onchange = async () => {
-          const previous = !permission.checked;
-          permission.disabled = true;
+        const permissions = document.createElement('div');
+        permissions.className = 'cap-list';
+        const start = document.createElement('input');
+        const stop = document.createElement('input');
+        start.type = 'checkbox'; start.checked = Boolean(app.can_start);
+        stop.type = 'checkbox'; stop.checked = Boolean(app.can_stop);
+        const startLabel = document.createElement('label');
+        const stopLabel = document.createElement('label');
+        startLabel.append(start, document.createTextNode(' Allow Start'));
+        stopLabel.append(stop, document.createTextNode(' Allow Stop'));
+        permissions.append(startLabel, stopLabel);
+        async function updateCaps() {
+          start.disabled = true; stop.disabled = true;
           try {
-            await postJSON('/api/apps/permission', { id: app.id, allowed: permission.checked });
-          } catch (error) {
-            permission.checked = previous;
-            status.textContent = 'Không thể cập nhật quyền: ' + error.message;
-          } finally {
-            permission.disabled = false;
-          }
-        };
+            await postJSON('/api/apps/edit', {
+              action:'caps',id:app.id,start:start.checked,stop:stop.checked
+            });
+          } catch(e) {status.textContent = 'Không thể sửa quyền: ' + e.message;}
+          finally {start.disabled = false;stop.disabled = false;}
+        }
+        start.onchange = updateCaps;
+        stop.onchange = updateCaps;
         const actions = document.createElement('div');
         actions.className = 'btn-group';
-        ['start', 'stop'].forEach(action => {
+        ['start','stop'].forEach(action => {
           const button = document.createElement('button');
           button.className = action === 'stop' ? 'btn-danger' : 'btn-primary';
           button.type = 'button';
           button.textContent = action === 'start' ? 'Start' : 'Stop';
-          button.disabled = !app.can_start_stop;
+          button.disabled = !currentProfileState.project_ready || (action === 'start' ? !app.can_start : !app.can_stop);
           button.onclick = async () => {
             button.disabled = true;
             try {
               const response = await fetch('/api/apps/control?t=' + encodeURIComponent(token), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: app.id, action })
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({id:app.id,action})
               });
               if (!response.ok) throw new Error(await response.text());
               const result = await response.json();
               status.textContent = result.message || 'Đã gửi yêu cầu.';
-            } catch (error) {
-              status.textContent = 'Không thể điều khiển ứng dụng: ' + error.message;
-            } finally {
-              button.disabled = !permission.checked;
-            }
+            } catch(e) {status.textContent = 'Không điều khiển được ứng dụng: ' + e.message;}
+            finally {button.disabled = !currentProfileState.project_ready || (action === 'start' ? !app.can_start : !app.can_stop);}
           };
           actions.appendChild(button);
         });
-        card.append(name, path, permissionLabel, actions, status);
+        const remove = document.createElement('button');
+        remove.className='btn-secondary';remove.type='button';remove.textContent='Remove';
+        remove.onclick=async () => {
+          if (!confirm('Remove program khỏi config hiện tại?')) return;
+          try {await postJSON('/api/apps/edit',{action:'remove',id:app.id});}
+          catch(e){status.textContent=e.message;}
+        };
+        actions.appendChild(remove);
+        card.append(name,path,permissions,actions,status);
         container.appendChild(card);
       });
     }
