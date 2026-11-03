@@ -873,6 +873,18 @@ func runHost(args []string) {
 		return protocol.NewResponse(msg.ID,protocol.TypeProjectStatus,status)
 	})
 	mcpMgr = mcpfwd.NewManager(notifyProjectToolsChanged)
+	getMCPConnection:=func(proj *store.ProjectConfig,root string)(*mcpfwd.Session,error){
+		if proj==nil||proj.MCP==nil{return nil,errors.New("ERR_MCP_NOT_CONFIGURED")}
+		endpoint,authorization:="",""
+		if proj.MCP.Transport=="streamable_http"{
+			if secretStore==nil{return nil,mcpsecret.ErrUnavailable}
+			saved,err:=secretStore.Load(proj.Name)
+			if err!=nil{return nil,mcpsecret.ErrUnavailable}
+			endpoint,authorization=saved.Endpoint,saved.Authorization
+		}
+		return mcpMgr.SessionWithEndpoint(proj.Name,root,proj.MCP.Transport,
+			proj.MCP.Command,endpoint,authorization)
+	}
 
 	// Register handler: exec_start → start a command, wait up to wait_seconds
 	server.RegisterHandler(protocol.TypeExecStart, func(msg *protocol.Message) (*protocol.Message, error) {
@@ -991,7 +1003,7 @@ func runHost(args []string) {
 			proj:=getActiveProject(id)
             if proj!=nil && proj.MCP!=nil && gate.HasCapability(permissions.CapMCP) {
                 dir,dirErr:=mcpGrantedDirectory(gate.ListGrants(),proj.MCP.Command)
-                if dirErr!=nil {sessionErrors=append(sessionErrors,dirErr.Error())} else if _,err:=mcpMgr.Session(proj.Name,dir,proj.MCP.Transport,proj.MCP.Command);err!=nil {
+                if dirErr!=nil {sessionErrors=append(sessionErrors,dirErr.Error())} else if _,err:=getMCPConnection(proj,dir);err!=nil {
 					message:=fmt.Sprintf("%s: %v",proj.Name,err)
 					sessionErrors=append(sessionErrors,message)
 				}
@@ -1029,7 +1041,7 @@ func runHost(args []string) {
 
         dir,dirErr:=mcpGrantedDirectory(gate.ListGrants(),proj.MCP.Command)
         if dirErr!=nil{return protocol.NewErrorResponse(msg.ID,"ERR_PARAMS",dirErr.Error()),nil}
-		sess, err := mcpMgr.Session(projName, dir, proj.MCP.Transport, proj.MCP.Command)
+		sess, err := getMCPConnection(proj,dir)
 		if err != nil {
 			return protocol.NewErrorResponse(msg.ID, "ERR_MCP", err.Error()), nil
 		}
