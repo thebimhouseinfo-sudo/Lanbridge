@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -1266,6 +1267,12 @@ func syncPendingClientUnpair(client *transport.Client, stateStore *store.StateSt
 }
 
 func syncFilesHandler(gate *permissions.Gatekeeper, cfg *store.HostConfig) transport.HandlerFunc {
+ return syncFilesHandlerWithProject(gate,cfg,func(id string)*store.ProjectConfig{return findProject(cfg,id)})
+}
+
+// With a selected profile, only the matching active project may Sync.
+// The direct target path option is still checked by the Windows actual Grant.
+func syncFilesHandlerWithProject(gate *permissions.Gatekeeper,cfg *store.HostConfig,find func(string)*store.ProjectConfig) transport.HandlerFunc {
 	return func(msg *protocol.Message) (*protocol.Message, error) {
 		var req struct {
 			Project string             `json:"project"`
@@ -1276,9 +1283,9 @@ func syncFilesHandler(gate *permissions.Gatekeeper, cfg *store.HostConfig) trans
 			return protocol.NewErrorResponse(msg.ID, "ERR_PARAMS", "project, target, and a non-empty files list are required"), nil
 		}
 
-		project := findProject(cfg, req.Project)
+		project := find(req.Project)
 		if project == nil {
-			return protocol.NewErrorResponse(msg.ID, "ERR_PROJECT", fmt.Sprintf("project %q not found", req.Project)), nil
+			return protocol.NewErrorResponse(msg.ID, "ERR_PROJECT", fmt.Sprintf("project %q is not the active loaded project", req.Project)), nil
 		}
 
 		var targetBase string
@@ -1286,7 +1293,11 @@ func syncFilesHandler(gate *permissions.Gatekeeper, cfg *store.HostConfig) trans
 		case "root":
 			targetBase = project.Root
 		default:
-			targetBase = project.RelatedDirs[req.Target]
+			if filepath.IsAbs(req.Target){
+				targetBase=req.Target
+			}else{
+				targetBase=project.RelatedDirs[req.Target]
+			}
 		}
 		if targetBase == "" {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PARAMS", fmt.Sprintf("target %q is not configured for project %q", req.Target, req.Project)), nil
