@@ -408,6 +408,23 @@ func runHost(args []string) {
 			return appManager.Control(id, action)
 		},
 	)
+	webUI.SetAppEditHandlers(
+		func(name,path string) error {
+			if err:=appManager.AddApp(name,path);err!=nil{return err}
+			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
+			return nil
+		},
+		func(id string) error {
+			if err:=appManager.RemoveApp(id);err!=nil{return err}
+			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
+			return nil
+		},
+		func(id string,start,stop bool) error {
+			if err:=appManager.SetActionPermissions(id,start,stop);err!=nil{return err}
+			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
+			return nil
+		},
+	)
 	webUI.SetChatHandler(func(text string) error {
 		if !hostConnected.Load() || pairedClientFingerprint.Load().(string) == "" {
 			return errors.New("client must be connected and paired to use chat")
