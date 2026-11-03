@@ -112,7 +112,7 @@ func (g *Gatekeeper) PendingRequests() []PermissionRequest {
 	return requests
 }
 
-// RespondRequest records the host user's decision and grants only selected requested capabilities.
+// RespondRequest persists the Windows user's ACTUAL grant. The host may grant\n// more or fewer capabilities than the Mac requested.
 func (g *Gatekeeper) RespondRequest(id string, approved bool, capabilities []string) error {
 	g.pendingMu.Lock()
 	pending, exists := g.pending[id]
@@ -134,10 +134,10 @@ func (g *Gatekeeper) RespondRequest(id string, approved bool, capabilities []str
 			return errors.New("select at least one capability or reject the request")
 		}
 		for _, capability := range selected {
-			if !hasCapability(pending.request.Capabilities, capability) {
+			if !isKnownCapability(capability) {
 				pending.resolving = false
 				g.pendingMu.Unlock()
-				return fmt.Errorf("capability %q was not requested", capability)
+				return fmt.Errorf("unknown capability: %s", capability)
 			}
 		}
 	}
@@ -278,26 +278,8 @@ func (g *Gatekeeper) ValidateGrantConstraints(path string, caps []string) error 
 	for _, c := range caps {
 		switch c {
 		case CapSync:
-			// Sync is restricted to project roots and configured related directories.
-			allowed := false
-			for _, p := range g.cfg.Projects {
-				if isWithinConfiguredDirectory(p.Root, canonical) {
-					allowed = true
-					break
-				}
-				for _, relDir := range p.RelatedDirs {
-					if isWithinConfiguredDirectory(relDir, canonical) {
-						allowed = true
-						break
-					}
-				}
-				if allowed {
-					break
-				}
-			}
-			if !allowed {
-				return errors.New("sync capability is restricted only to project root or related_dirs")
-			}
+			// A Windows user's folder grant is authoritative. The project registry
+			// does not limit where an explicitly granted Sync can target.
 		case CapExecute, CapMCP:
 			// Execute and MCP grants are attached to a project root.
 			allowed := false
