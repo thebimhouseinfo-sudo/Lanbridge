@@ -1,8 +1,10 @@
-# Milestones — LAN Test Bridge v1.0
+# Milestones — LAN Test Bridge v1.3 (legacy M1–5 + Criteria-aligned M6–10)
 
-Status: CODE COMPLETE; REAL-HOST ACCEPTANCE PENDING (rev 3)
+Status: ~~CODE COMPLETE; REAL-HOST ACCEPTANCE PENDING (rev 3)~~ Legacy M1–5 code marked complete but native acceptance pending; new M6–10 PLANNED, not implemented (2026-11-03).
 
-Chi tiết kỹ thuật từng Task: `docs/TECHNICAL_PROPOSAL.md`.
+Legacy technical detail: docs/TECHNICAL_PROPOSAL.md. Revised approved-scope planning: docs/IMPLEMENTATION_PLAN.md (reviewed). New proposal: docs/TECHNICAL_PROPOSAL_V2.md (next step).
+
+**Historical baseline:** M1–5 below preserve the old execution record, NOT currently binding requirements where they conflict with latest Criteria. M6–10 below own the required delta. Do not claim new functions are CODE COMPLETE.
 Local Go tests, `go vet ./...`, and the Windows GUI build pass. **- test required:** native macOS packaging; native tray icon rendering/contrast on macOS and Windows (including Windows 100%/150% scaling); CAI MCP transport/tool behavior; and the 12-item two-machine acceptance remain deferred until after push; see `TASKS.md`.
 
 ## Milestone 1: Nền tảng — kết nối, ghép nối, UI tối thiểu
@@ -29,7 +31,7 @@ Local Go tests, `go vet ./...`, and the Windows GUI build pass. **- test require
 **GOALs:** GOAL-3, GOAL-4, GOAL-5, GOAL-12
 
 **Deliverables:**
-- Yêu cầu quyền → Accept/Reject trên Windows; sửa/thu hồi; Sync chỉ vào repo hoặc thư mục liên quan đã khai báo (`related_dirs`); Execute/MCP theo project.
+- Yêu cầu quyền → Accept/Reject trên Windows; sửa/thu hồi; ~~Sync chỉ vào repo hoặc thư mục liên quan đã khai báo (`related_dirs`)~~; replaced by actual Windows Sync Grant under M7; Execute/MCP theo project.
 - Một hàm kiểm tra đường dẫn dùng chung (chặn `..`, symlink/junction ra ngoài).
 - Read: list, metadata, đọc theo đoạn, đọc N dòng cuối.
 - Sync nhiều file/lần ≤ 5 MB, ghi tạm → rename, trả SHA-256.
@@ -38,7 +40,7 @@ Local Go tests, `go vet ./...`, and the Windows GUI build pass. **- test require
 
 **Verification:**
 - Agent xin quyền → Accept → đọc log thành công.
-- Đọc ngoài phạm vi, `..\`, junction ra ngoài → từ chối. Sync ngoài project → từ chối.
+- Đọc ngoài phạm vi, `..\`, junction ra ngoài → từ chối. ~~Sync ngoài project → từ chối.~~ Only ungranted folder must be denied (M7).
 - > 5 MB → từ chối, không file nào bị ghi. Thu hồi → lần gọi sau bị từ chối.
 - Chuyển Claude ↔ Codex chỉ để lại đăng ký Bridge của agent được chọn; các MCP entry khác được giữ nguyên; lỗi CLI/config được báo rõ.
 - Hai tiến trình `bridge mcp` cùng lúc: tiến trình đầu giữ khóa, tiến trình sau nhận lỗi bận; khóa được giải phóng sau khi tiến trình đầu thoát.
@@ -50,7 +52,7 @@ Local Go tests, `go vet ./...`, and the Windows GUI build pass. **- test require
 **GOALs:** GOAL-6, GOAL-7
 
 **Deliverables:**
-- 8 lệnh cố định ánh xạ theo từng project trong `config.json`, chạy từ repo root.
+- ~~8 lệnh cố định ánh xạ theo từng project trong `config.json`, chạy từ repo root.~~ Keep named commands as shortcuts; extend granted arbitrary Shell/Exec (M7).
 - Job Object dọn process con, không bật cửa sổ console, không treo vì tiến trình phụ .NET; timeout; lệnh dài lấy kết quả tiếp bằng `command_result`.
 - Chuyển tiếp tools của MCP server dự án (transport thật của CAI, kiểm tra trước khi code); tự mở lại phiên khi server khởi động lại.
 
@@ -89,9 +91,87 @@ Local Go tests, `go vet ./...`, and the Windows GUI build pass. **- test require
 
 **Deliverables:**
 - `install.sh` (Mac) và `install.ps1` (Windows, không admin, không cài thêm gì; cảnh báo nếu Wi-Fi đang là Public).
-- Nghiệm thu 12 mục §11 trên 2 máy thật với repo CAI.
+- ~~Nghiệm thu 12 mục §11 trên 2 máy thật với repo CAI.~~ Full 40-case Criteria acceptance including a non-CAD Windows project and CAI sample belongs to M10.
 
 **Verification:**
 - Cài → icon → mở app → pair → đọc log → sync → build → gọi MCP → start/stop → chat → Thoát.
 - Idle mỗi bên < 30 MB RAM, CPU ~0%.
-- 12 mục §11 PASS, ghi báo cáo vào `docs/reports/`.
+- ~~12 mục §11 PASS~~ (old scope); M10 must cover all 40 Criteria §11 cases and record PASS/FAIL/UNVERIFIED in docs/reports/.
+
+
+---
+
+## Milestone 6: Independent project configs and matching — PLANNED
+
+### GOAL
+
+Two locally stored, unsynced project config files: Windows permissions, Mac blacklist. Both must load successfully with matching stable Project ID before project operations. Criteria §§4, 15, 19–21; Plan Phase 1.
+
+**Depends on:** legacy transport and Mac MCP scaffolding; inspect actual existing code first, do not rebuild unchanged modules.
+
+**Deliverables:** Windows UI creates/saves and manually opens its Permission Config; Windows setup shows the stable Project ID. Mac first-time app setup selects the same Project ID (via permitted metadata or manual entry) and creates empty blacklist file. Mac agent may load existing file read-only but never create/edit during Open. Maintain global pairing state independently. Profiles persist without auto-activation. Explicit NOT_OPEN/NOT_FOUND/INVALID/MISMATCH states.
+
+**Verification:** Empty loaded Mac file + matching Windows manual-open file => PROJECT_READY; missing/unloaded/corrupt file or wrong Project ID => no project Read/Sync/Exec/App/MCP; restarts and reconnects require re-opening; neither config syncs to the other host; existing files not overwritten on setup.
+
+## Milestone 7: Windows grant authority, sync scope and Shell Exec — PLANNED
+
+### GOAL
+
+Windows controls actual grants for any folder/app independently of Mac request, while granted Shell/Exec supports attended development workflows. Criteria §§5–7, 9, 14, 16; Plan Phase 2.
+
+**Depends on:** M6 readiness, existing fileops/permissions/executor.
+
+**Deliverables:** Windows UI Pending Requests/Actual Grants, Add Folder OS chooser, Program EXE picker, Grant/Edit/Revoke, named profile Save/Load, manual Open. Windows may grant more/less/different than requested, or grant proactively. Read/Sync checks actual folder grants, not project root/related_dirs; per-request Sync limit 5 MB; never transfer config files. Shell command/script with approved Exec, selectable working directory, stdout/stderr/exit/timeout/cancel; eight named build IDs remain shortcuts. Start/Stop existing Windows app workflow; no fake additional shell sandbox.
+
+**Verification:** Request Read→Grant Read+Sync; Request Read+Sync→Grant Read; proactive folder grant; revoke applies immediately; non-project but granted Sync succeeds; ungranted path and oversize denied; shell rebuild/restart and command output work.
+
+## Milestone 8: Mac blacklist lock and generic MCP dispatch — PLANNED
+
+### GOAL
+
+All project MCP tools remain available by default when valid empty blacklist is loaded; explicit user-configured rules are applied on Mac; missing blacklist is never bypassed. Criteria §§8, 17, 19–21; Plan Phase 3.
+
+**Depends on:** M6 matching and M7 actual-grant integration.
+
+**Deliverables:** Blacklist schema, atomic save, first setup creates 0 entries and never overwrites existing; Mac UI displays list and manual Lock/Unlock. Agent may edit only on separate user request when unlocked; opening config remains read-only. Mac bridge MCP dispatch checks concrete configured tool/argument rules before forwarding; generic across any Windows repo. If a user-requested nested matcher cannot reliably be enforced at Mac boundary, reject enabling that rule with clear unsupported error and retain prior valid config; offer whole-tool deny where appropriate. No default CAI/RAI hardcoded commands.
+
+**Verification:** Loaded empty list + MCP grant => all non-CAD project tools callable; explicitly configured rule => blocked with clear error; missing/unloaded/corrupt => not READY; lock prevents edits through UI/API; manual Unlock + user request enables edits; persisted lock survives restart; no config copied to Windows.
+
+## Milestone 9: Existing UI and project-state visibility — PLANNED
+
+### GOAL
+
+Deliver the machine-specific Windows and Mac controls within existing lightweight chat/Settings UI and expose readiness without framework replacement. Criteria §§10–11, 14–15, 19–20; Plan Phase 4.
+
+**Depends on:** M6–M8 APIs.
+
+**Deliverables:** Windows Settings for permission profile manual Open, folder/app Grant/Edit/Revoke and pending requests. Mac Settings for project identity, blacklist list, errors and manual Lock/Unlock; agent Open existing file only. Separate network Connected from PROJECT_READY. Retain two-way chat, settings, activity labels without args/logs, provider management, one-agent lock, icons.
+
+**Verification:** native Windows file/folder picker and edit; Mac lock/edit/read-only Open; project mismatch/absent file/error messages; profile switching; connection/permissions activity and chat regression.
+
+## Milestone 10: Native two-machine acceptance — PLANNED
+
+### GOAL
+
+Verify old and new requirements on real Mac+Windows and a generic non-CAD project, with an optional CAI example, without claiming simulation is native PASS. Criteria §11 cases #1–40; Plan Phase 5.
+
+**Depends on:** M6–M9 implemented with source-bound tests.
+
+**Deliverables:** Go unit/integration and regression evidence for config migration, permissions, Scope Sync, Shell/Exec, blacklist, project match, MCP dynamic tools, UI and lifecycle. Native Mac and Windows UI tests. Real attended LAN end-to-end runs. Docs/reports evidence by revision, scenario, host and PASS/FAIL/UNVERIFIED. Update README/install notes according to actual behavior.
+
+**Verification:** all 40 Acceptance Criteria explicitly mapped to evidence; unavailable native conditions remain UNVERIFIED, not PASS. No product code implementation or merge is approved merely because this plan document exists.
+
+## New-scope dependency and status ledger
+
+| Group | Depends on | State |
+|---|---|---|
+| Legacy M1–5 | earlier v1.0 work | Source previously labeled code complete; native acceptance pending |
+| M6 | existing transport/MCP | PLANNED |
+| M7 | M6 + permissions/fileops/executor | PLANNED |
+| M8 | M6/M7 + MCP dispatch | PLANNED |
+| M9 | M6–M8 APIs | PLANNED |
+| M10 | M6–M9 | PLANNED / native tests NOT RUN |
+
+Reviewed Plan blob: f821efded9fc5d6f7e7c0589908c63a4ca2bdbfc.
+Direct-review evidence: docs/reports/2026-11-03-plan-v1.3-direct-review.md.
+No new GSA Project/Job, no product source changes in this milestone-document update.
