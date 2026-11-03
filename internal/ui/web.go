@@ -116,6 +116,9 @@ type WebServer struct {
 	onGrantRevoke       func(path string) error
 	onAppPermission     func(id string, allowed bool) error
 	onAppControl        func(id, action string) (string, error)
+	onAppAdd            func(name,path string) error
+	onAppRemove         func(id string) error
+	onAppCaps           func(id string,start,stop bool) error
 	onChatSend          func(text string) error
 	onAgentChatSend     func(text string) error
 	onMCPProviderChange func(context.Context, string) ([]MCPProviderState, error)
@@ -207,6 +210,14 @@ func (ws *WebServer) SetAppHandlers(
 	ws.onAppControl = onControl
 }
 
+func (ws *WebServer) SetAppEditHandlers(
+ add func(name,path string) error,
+ remove func(id string) error,
+ caps func(id string,start,stop bool) error,
+) {
+ ws.onAppAdd=add;ws.onAppRemove=remove;ws.onAppCaps=caps
+}
+
 func (ws *WebServer) SetChatHandler(onSend func(text string) error) {
 	ws.onChatSend = onSend
 }
@@ -265,6 +276,8 @@ func (ws *WebServer) Start() {
 	mux.HandleFunc("/api/permissions/revoke", ws.handleGrantRevoke)
 	mux.HandleFunc("/api/apps/permission", ws.handleAppPermission)
 	mux.HandleFunc("/api/apps/control", ws.handleAppControl)
+	mux.HandleFunc("/api/apps/edit", ws.handleAppEdit)
+	mux.HandleFunc("/api/windows/pick", ws.handleWindowsPicker)
 	mux.HandleFunc("/api/chat/send", ws.handleChatSend)
 	mux.HandleFunc("/api/mcp/chat/send", ws.handleMCPChatSend)
 	mux.HandleFunc("/api/mcp/activity", ws.handleMCPActivity)
@@ -559,6 +572,64 @@ func (ws *WebServer) handleOpenConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+
+func (ws *WebServer) handleAppEdit(w http.ResponseWriter,r *http.Request) {
+ if !ws.checkToken(r)||r.Method!=http.MethodPost {
+  http.Error(w,"Forbidden",http.StatusForbidden);return
+ }
+ r.Body=http.MaxBytesReader(w,r.Body,64*1024)
+ var req struct {
+  Action string `json:"action"`
+  ID string `json:"id"`
+  Name string `json:"name"`
+  Path string `json:"path"`
+  Start bool `json:"start"`
+  Stop bool `json:"stop"`
+ }
+ if err:=json.NewDecoder(r.Body).Decode(&req);err!=nil{
+  http.Error(w,"bad app request",http.StatusBadRequest);return
+ }
+ var err error
+ switch req.Action{
+ case "add":
+  if ws.onAppAdd==nil{err=errors.New("Windows app add unavailable")}else{err=ws.onAppAdd(req.Name,req.Path)}
+ case "remove":
+  if ws.onAppRemove==nil{err=errors.New("Windows app remove unavailable")}else{err=ws.onAppRemove(req.ID)}
+ case "caps":
+  if ws.onAppCaps==nil{err=errors.New("Windows app permission edit unavailable")}else{err=ws.onAppCaps(req.ID,req.Start,req.Stop)}
+ default:
+  http.Error(w,"unknown app action",http.StatusBadRequest);return
+ }
+ if err!=nil{http.Error(w,err.Error(),http.StatusBadRequest);return}
+ w.WriteHeader(http.StatusOK)
+}
+
+// Windows native picker is invoked only by a local Windows UI button.
+// The browser itself cannot reveal absolute OS folder paths.
+func (ws *WebServer) handleWindowsPicker(w http.ResponseWriter,r *http.Request) {
+ if !ws.checkToken(r)||r.Method!=http.MethodPost{http.Error(w,"Forbidden",http.StatusForbidden);return}
+ if runtime.GOOS!="windows" || ws.state.Role!="Host (Windows)"{
+  http.Error(w,"Windows native picker unavailable",http.StatusNotImplemented);return
+ }
+ kind:=r.URL.Query().Get("kind")
+ var script string
+ switch kind{
+ case "folder":
+  script=`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; if($d.ShowDialog() -eq 'OK'){Write-Output $d.SelectedPath}`
+ case "app":
+  script=`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = 'Executable (*.exe)|*.exe|All files (*.*)|*.*'; if($d.ShowDialog() -eq 'OK'){Write-Output $d.FileName}`
+ default:
+  http.Error(w,"invalid picker kind",http.StatusBadRequest);return
+ }
+ ctx,cancel:=context.WithTimeout(r.Context(),90*time.Second)
+ defer cancel()
+ cmd:=exec.CommandContext(ctx,"powershell.exe","-NoProfile","-STA","-WindowStyle","Hidden","-Command",script)
+ output,err:=cmd.CombinedOutput()
+ if err!=nil{http.Error(w,"Windows picker unavailable: "+err.Error(),http.StatusServiceUnavailable);return}
+ w.Header().Set("Content-Type","application/json")
+ _=json.NewEncoder(w).Encode(map[string]string{"path":strings.TrimSpace(string(output))})
 }
 
 func (ws *WebServer) handleExit(w http.ResponseWriter, r *http.Request) {
