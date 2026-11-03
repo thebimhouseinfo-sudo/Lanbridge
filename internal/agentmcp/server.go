@@ -17,6 +17,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/store"
 )
 
 const maxLocalSyncBytes = 5 * 1024 * 1024
@@ -1104,6 +1106,11 @@ func isWithinLocalRoot(root, candidate string) bool {
 }
 
 func readLocalSyncFile(path string, remaining int64) ([]byte, error) {
+	bridgeDataDir,err:=store.GetConfigDir()
+	if err!=nil{return nil,err}
+	if projectconfig.IsBridgePrivatePath(path,bridgeDataDir) {
+		return nil,errors.New("ERR_CONFIG_PROTECTED: Mac blacklist config cannot be synced")
+	}
 	if remaining < 0 {
 		return nil, errors.New("total sync payload exceeds 5 MB")
 	}
