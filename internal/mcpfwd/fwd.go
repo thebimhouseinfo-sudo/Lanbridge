@@ -227,6 +227,21 @@ func (m *Manager) SessionWithEndpoint(projName,projectRoot,transport string,argv
  return s,nil
 }
 
+// Probe initializes and lists tools without calling a project tool or
+// mutating the live project manager. It never modifies grants or profiles.
+func Probe(projName,root,transport string,argv []string,endpoint,authorization string)([]MCPTool,error){
+ var s *Session
+ var err error
+ switch transport{
+ case "stdio":s,err=openSession(projName,root,transport,argv)
+ case "streamable_http":s,err=openHTTPSession(projName,endpoint,authorization)
+ default:return nil,fmt.Errorf("ERR_MCP_TRANSPORT_UNSUPPORTED")
+ }
+ if err!=nil{return nil,err}
+ defer s.Close()
+ return s.Tools(),nil
+}
+
 // CloseProject closes the session for the named project, if any.
 func (m *Manager) CloseProject(projName string) {
 	m.mu.Lock()
