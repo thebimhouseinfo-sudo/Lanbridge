@@ -34,7 +34,7 @@ func TestMissingAndInvalidAreNeverTreatedAsEmpty(t *testing.T) {
  if err:=os.MkdirAll(filepath.Dir(path),0700);err!=nil{t.Fatal(err)}
  if err:=os.WriteFile(path,[]byte("{invalid"),0600);err!=nil{t.Fatal(err)}
  if _,err:=s.LoadMac("new-app");!errors.Is(err,ErrInvalid){t.Fatalf("corrupt: %v",err)}
- if err:=os.WriteFile(path,[]byte(\`{"schema_version":1,"project_id":"new-app"}\`),0600);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(path,[]byte(`{"schema_version":1,"project_id":"new-app"}`),0600);err!=nil{t.Fatal(err)}
  if _,err:=s.LoadMac("new-app");!errors.Is(err,ErrInvalid){t.Fatalf("null entries: %v",err)}
 }
 
@@ -59,7 +59,7 @@ func TestWindowsPermissionsIndependentAndProjectIDValidation(t *testing.T) {
  windows,_:=New(filepath.Join(root,"windows"))
  mac,_:=New(filepath.Join(root,"mac"))
  err:=windows.SaveWindows("project-a",WindowsPermissions{
-  SchemaVersion:1,ProjectID:"project-a",Folders:[]FolderGrant{{Path:\`C:\Dev\App\`,Capabilities:[]string{"read","sync"}}},
+  SchemaVersion:1,ProjectID:"project-a",Folders:[]FolderGrant{{Path:`C:\Dev\App`,Capabilities:[]string{"read","sync"}}},
  })
  if err!=nil{t.Fatal(err)}
  if _,err=mac.LoadMac("project-a");!errors.Is(err,ErrNotFound){t.Fatalf("config was synced implicitly: %v",err)}
