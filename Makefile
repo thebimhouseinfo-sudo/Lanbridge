@@ -10,13 +10,14 @@ test:
 
 generate-icons:
 	cd tools/genicons && go run . -source ../../internal/ui/icons -out ../../internal/ui/icons
+	python3 tools/appicon/generate.py
 
 # Cross-compile pure Go binary for Windows AMD64 (no CGO, no console window)
 dist-windows:
 	@mkdir -p dist/windows
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w -H windowsgui" -o dist/windows/bridge.exe ./cmd/bridge
 	@cp -f scripts/install.ps1 dist/windows/
-	@cp -f internal/ui/icons/cable-blue.ico dist/windows/lanbridge.ico
+	@cp -f internal/ui/icons/desktop.ico dist/windows/lanbridge.ico
 	@echo "Built dist/windows/bridge.exe successfully."
 
 # Build native macOS ARM64 bundle with CGO (for systray menu bar)

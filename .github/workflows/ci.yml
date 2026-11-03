@@ -39,7 +39,7 @@ jobs:
           go build -ldflags="-s -w -H windowsgui" -o dist/windows/bridge.exe ./cmd/bridge
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item scripts/install.ps1 dist/windows/
-          Copy-Item internal/ui/icons/cable-blue.ico dist/windows/lanbridge.ico
+          Copy-Item internal/ui/icons/desktop.ico dist/windows/lanbridge.ico
       - name: Build macOS app
         if: runner.os == 'macOS'
         run: make dist-mac
