@@ -321,7 +321,6 @@ func runHost(args []string) {
 				st.ProjectID=id;st.ProjectReady=status.Ready;st.ProjectError=status.Error
 			})
 			updatePermissionUI()
-			notifyProjectToolsChanged()
 			return nil
 		},
 		nil,nil,
