@@ -289,6 +289,7 @@ func runHost(args []string) {
 		})
 		sendClientUIState()
 	}
+	var mcpMgr *mcpfwd.Manager
 	// Permission files are created/selected only by Windows human UI.
 	// Mac can see the project ID metadata but never receives the file.
 	webUI.SetProjectHandlers(
@@ -360,6 +361,7 @@ func runHost(args []string) {
 			if err:=appManager.ReplaceApps(approvedApps,appRights);err!=nil{return err}
 			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
 			activeProjectMu.Lock();activeProject=current;activeProjectMu.Unlock()
+			if mcpMgr!=nil{mcpMgr.CloseProject(id)}
 			if err:=hostSession.SetWindowsLoaded(id);err!=nil{return err}
 			status:=hostSession.Snapshot()
 			webUI.UpdateState(func(st *ui.UIState){
@@ -655,7 +657,7 @@ func runHost(args []string) {
 		notifyProjectToolsChanged()
 		return protocol.NewResponse(msg.ID,protocol.TypeProjectStatus,status)
 	})
-	mcpMgr := mcpfwd.NewManager(notifyProjectToolsChanged)
+	mcpMgr = mcpfwd.NewManager(notifyProjectToolsChanged)
 
 	// Register handler: exec_start → start a command, wait up to wait_seconds
 	server.RegisterHandler(protocol.TypeExecStart, func(msg *protocol.Message) (*protocol.Message, error) {
@@ -818,6 +820,10 @@ func runHost(args []string) {
 	server.SetCallbacks(func(peerFP string) {
 		hostSession.Clear()
 		hostConnected.Store(true)
+		webUI.UpdateState(func(st *ui.UIState){
+			st.ProjectID="";st.ProjectReady=false
+			st.ProjectError=projectconfig.ErrNotOpen.Error()
+		})
 		slog.Info("Client connected", "fingerprint", peerFP)
 		trustedFP := pairedClientFingerprint.Load().(string)
 		paired := trustedFP != "" && peerFP == trustedFP
@@ -845,6 +851,10 @@ func runHost(args []string) {
 	}, func() {
 		hostSession.Clear()
 		hostConnected.Store(false)
+		webUI.UpdateState(func(st *ui.UIState){
+			st.ProjectID="";st.ProjectReady=false
+			st.ProjectError=projectconfig.ErrNotOpen.Error()
+		})
 		pairMgr.ResetExchange()
 		slog.Info("Client bye — cancelling all running commands")
 		execMgr.CancelAll()
@@ -859,6 +869,10 @@ func runHost(args []string) {
 	}, func() {
 		hostSession.Clear()
 		hostConnected.Store(false)
+		webUI.UpdateState(func(st *ui.UIState){
+			st.ProjectID="";st.ProjectReady=false
+			st.ProjectError=projectconfig.ErrNotOpen.Error()
+		})
 		pairMgr.ResetExchange()
 		slog.Warn("Client connection dropped")
 		gate.CancelPendingRequests()
