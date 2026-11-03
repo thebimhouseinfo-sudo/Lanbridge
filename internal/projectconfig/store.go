@@ -104,8 +104,7 @@ func validateWindows(id string, p *WindowsPermissions) error {
 func validateMac(id string, b *MacBlacklist) error {
  if b.SchemaVersion!=SchemaVersion || b.ProjectID!=id || b.Entries==nil {return ErrInvalid}
  for _,entry:=range b.Entries {
-  if entry.Tool=="" || (entry.Kind!="tool" && entry.Kind!="argument"){return ErrInvalid}
-  if entry.Kind=="argument" && entry.Path=="" {return ErrInvalid}
+  if err:=ValidateRule(entry);err!=nil{return fmt.Errorf("%w: %v",ErrInvalid,err)}
  }
  return nil
 }
