@@ -33,6 +33,8 @@ type UIState struct {
 	MaintenanceSource string `json:"maintenance_source,omitempty"`
 	MaintenanceEnabled bool `json:"maintenance_enabled"`
 	MaintenanceAvailable bool `json:"maintenance_available"`
+	ProjectMCPTransport string `json:"project_mcp_transport,omitempty"`
+	ProjectMCPEndpointSet bool `json:"project_mcp_endpoint_set"`
 	ProjectID          string                  `json:"project_id,omitempty"`
 	ProjectReady       bool                    `json:"project_ready"`
 	ProjectError       string                  `json:"project_error,omitempty"`
@@ -110,6 +112,7 @@ type WebServer struct {
 	onHostConnect       func(address string) error
 	onProjectList       func() ([]string,error)
 	onMaintenanceConfigure func(action,root string) error
+	onProjectMCPConfig func(action,id,transport string,argv []string,endpoint,auth string)(map[string]any,error)
 	onProjectSetup      func(id,workspace,mcpCommand string) error
 	windowsPicker func(context.Context, string) (string, error)
 	onProjectOpen       func(id string) error
@@ -184,6 +187,10 @@ func (ws *WebServer) SetPairCodeHandler(onSubmit func(code string) error) {
 // expose an existing-only read-only Open to the local agent.
 // SetMaintenanceHandler is bound only on Windows. Mac cannot edit the
 // Windows paired-device entitlement from its UI or MCP tool.
+func (ws *WebServer) SetProjectMCPConfigHandler(fn func(action,id,transport string,argv []string,endpoint,auth string)(map[string]any,error)){
+ ws.onProjectMCPConfig=fn
+}
+
 func (ws *WebServer) SetMaintenanceHandler(fn func(action,root string)error){
  ws.onMaintenanceConfigure=fn
 }
@@ -294,6 +301,7 @@ func (ws *WebServer) Start() {
 	mux.HandleFunc("/api/config/open", ws.handleOpenConfig)
 	mux.HandleFunc("/api/project/action", ws.handleProjectAction)
 	mux.HandleFunc("/api/maintenance/config", ws.handleMaintenanceConfig)
+	mux.HandleFunc("/api/project/mcp",ws.handleProjectMCPConfig)
 	mux.HandleFunc("/api/exit", ws.handleExit)
 	mux.HandleFunc("/api/permissions/respond", ws.handlePermissionRespond)
 	mux.HandleFunc("/api/permissions/update", ws.handleGrantUpdate)
@@ -542,6 +550,35 @@ func (ws *WebServer) handleUnpair(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+
+// MCP connection Test/Save is a Windows-local operation. The endpoint
+// may contain a token even in its path and is never included in SSE state.
+func (ws *WebServer) handleProjectMCPConfig(w http.ResponseWriter,r *http.Request){
+ if !ws.checkToken(r)||r.Method!=http.MethodPost{http.Error(w,"Forbidden",http.StatusForbidden);return}
+ ws.stateMu.RLock();role:=ws.state.Role;ws.stateMu.RUnlock()
+ if role!="Host (Windows)" || ws.onProjectMCPConfig==nil{
+  http.Error(w,"Windows-only MCP configuration",http.StatusForbidden);return
+ }
+ r.Body=http.MaxBytesReader(w,r.Body,128*1024)
+ var req struct {
+  Action string `json:"action"`
+  ProjectID string `json:"project_id"`
+  Transport string `json:"transport"`
+  Argv []string `json:"argv"`
+  Endpoint string `json:"endpoint"`
+  Authorization string `json:"authorization"`
+ }
+ if err:=json.NewDecoder(r.Body).Decode(&req);err!=nil{
+  http.Error(w,"invalid MCP configuration",http.StatusBadRequest);return
+ }
+ response,err:=ws.onProjectMCPConfig(req.Action,req.ProjectID,req.Transport,req.Argv,req.Endpoint,req.Authorization)
+ if err!=nil{
+  // Callers guarantee normalized error codes, never raw URL/library errors.
+  http.Error(w,err.Error(),http.StatusBadRequest);return
+ }
+ w.Header().Set("Content-Type","application/json")
+ _=json.NewEncoder(w).Encode(response)
+}
 
 func (ws *WebServer) handleMaintenanceConfig(w http.ResponseWriter,r *http.Request){
  if !ws.checkToken(r)||r.Method!=http.MethodPost {
