@@ -206,6 +206,7 @@ func runHost(args []string) {
 	})
 
 	// Setup tray manager
+	var execMgr *executor.Manager
 	var tray *ui.TrayManager
 	var stopMDNS func()
 	if !*headless {
@@ -226,7 +227,7 @@ func runHost(args []string) {
 	}
 
 	// M3: Wire executor (run_command / exec_start, exec_result)
-	execMgr := executor.NewManager()
+	execMgr = executor.NewManager()
 	execMgr.SetStateChangeHandler(func() {
 		running := execMgr.HasRunning()
 		webUI.UpdateState(func(s *ui.UIState) {
