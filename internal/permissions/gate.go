@@ -263,44 +263,15 @@ func (g *Gatekeeper) ResolveAccess(candidatePath string, capability string) (str
 	return "", ErrAccessDenied
 }
 
-// ValidateGrantConstraints checks project constraints from CRITERIA §5
+// ValidateGrantConstraints validates a Windows user-selected grant. Project
+// roots/related_dirs are NOT a second authorization gate for Read/Sync/Exec/MCP.
 func (g *Gatekeeper) ValidateGrantConstraints(path string, caps []string) error {
-	canonical, err := canonicalDirectory(path)
-	if err != nil {
-		return err
-	}
-	if g.cfg == nil {
-		return errors.New("host config is required to validate permission grants")
-	}
-	if len(caps) == 0 {
-		return errors.New("at least one capability must be granted")
-	}
-
-	for _, c := range caps {
-		switch c {
-		case CapSync:
-			// A Windows user's folder grant is authoritative. The project registry
-			// does not limit where an explicitly granted Sync can target.
-		case CapExecute, CapMCP:
-			// Execute and MCP grants are attached to a project root.
-			allowed := false
-			for _, p := range g.cfg.Projects {
-				root, rootErr := canonicalDirectory(p.Root)
-				if rootErr == nil && samePath(root, canonical) {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return errors.New("execute and mcp capabilities can only be granted to project root")
-			}
-		case CapRead:
-			// read is allowed for any directory user approves
-		default:
-			return fmt.Errorf("unknown capability: %s", c)
-		}
-	}
-	return nil
+ if _,err:=canonicalDirectory(path);err!=nil{return err}
+ if len(caps)==0{return errors.New("at least one capability must be granted")}
+ for _,capability:=range caps {
+  if !isKnownCapability(capability){return fmt.Errorf("unknown capability: %s",capability)}
+ }
+ return nil
 }
 
 // AddGrant adds an approved grant and persists to state.json
