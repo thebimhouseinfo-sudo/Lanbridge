@@ -45,6 +45,12 @@ try {
     }
     else {
         $desktopDirectory = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
+        if ([string]::IsNullOrWhiteSpace($desktopDirectory)) {
+            if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+                throw "Cannot locate the Windows Desktop: DesktopDirectory and USERPROFILE are empty."
+            }
+            $desktopDirectory = Join-Path $env:USERPROFILE "Desktop"
+        }
         $startMenuDirectory = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\LAN Bridge"
     }
     New-Item -ItemType Directory -Force -Path $desktopDirectory, $startMenuDirectory | Out-Null
