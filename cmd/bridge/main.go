@@ -372,6 +372,44 @@ func runHost(args []string) {
 		},
 		nil,nil,
 	)
+	webUI.SetProjectManagementHandlers(
+		func(oldID,newID string) error {
+			if err:=hostProfiles.SaveAs(oldID,newID,false);err!=nil{return err}
+			ids,_:=hostProfiles.ListIDs(false)
+			webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+			return nil
+		},
+		func(oldID,newID string) error {
+			if err:=hostProfiles.Rename(oldID,newID,false);err!=nil{return err}
+			if hostSession.Snapshot().WindowsID==oldID {
+				hostSession.Clear()
+				activeProjectMu.Lock();activeProject=nil;activeProjectMu.Unlock()
+				webUI.UpdateState(func(st *ui.UIState){
+					st.ProjectID="";st.ProjectReady=false
+					st.ProjectError=projectconfig.ErrNotOpen.Error()
+				})
+				sendClientUIState()
+			}
+			ids,_:=hostProfiles.ListIDs(false)
+			webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+			return nil
+		},
+		func(id string) error {
+			if err:=hostProfiles.Delete(id,false);err!=nil{return err}
+			if hostSession.Snapshot().WindowsID==id {
+				hostSession.Clear()
+				activeProjectMu.Lock();activeProject=nil;activeProjectMu.Unlock()
+				webUI.UpdateState(func(st *ui.UIState){
+					st.ProjectID="";st.ProjectReady=false
+					st.ProjectError=projectconfig.ErrNotOpen.Error()
+				})
+				sendClientUIState()
+			}
+			ids,_:=hostProfiles.ListIDs(false)
+			webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+			return nil
+		},
+	)
 	// Saving the current Windows grants is a separate intentional UI action.
 	// It cannot be triggered by the Mac agent and never changes the Mac file.
 	webUI.SetProjectSaveHandler(func() error {
