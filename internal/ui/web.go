@@ -30,6 +30,9 @@ var embedFS embed.FS
 // UIState represents the real-time state broadcast to Web UI via SSE
 type UIState struct {
 	Role               string                  `json:"role"`
+	MaintenanceSource string `json:"maintenance_source,omitempty"`
+	MaintenanceEnabled bool `json:"maintenance_enabled"`
+	MaintenanceAvailable bool `json:"maintenance_available"`
 	ProjectID          string                  `json:"project_id,omitempty"`
 	ProjectReady       bool                    `json:"project_ready"`
 	ProjectError       string                  `json:"project_error,omitempty"`
@@ -106,6 +109,7 @@ type WebServer struct {
 	onExit              func()
 	onHostConnect       func(address string) error
 	onProjectList       func() ([]string,error)
+	onMaintenanceConfigure func(action,root string) error
 	onProjectSetup      func(id,workspace,mcpCommand string) error
 	windowsPicker func(context.Context, string) (string, error)
 	onProjectOpen       func(id string) error
@@ -178,6 +182,12 @@ func (ws *WebServer) SetPairCodeHandler(onSubmit func(code string) error) {
 // SetProjectHandlers routes local profile actions to each machine's own
 // App Data. On Windows only the human UI opens permissions; Mac may also
 // expose an existing-only read-only Open to the local agent.
+// SetMaintenanceHandler is bound only on Windows. Mac cannot edit the
+// Windows paired-device entitlement from its UI or MCP tool.
+func (ws *WebServer) SetMaintenanceHandler(fn func(action,root string)error){
+ ws.onMaintenanceConfigure=fn
+}
+
 func (ws *WebServer) SetProjectManagementHandlers(
  copy func(oldID,newID string) error,
  rename func(oldID,newID string) error,
@@ -283,6 +293,7 @@ func (ws *WebServer) Start() {
 	mux.HandleFunc("/api/unpair", ws.handleUnpair)
 	mux.HandleFunc("/api/config/open", ws.handleOpenConfig)
 	mux.HandleFunc("/api/project/action", ws.handleProjectAction)
+	mux.HandleFunc("/api/maintenance/config", ws.handleMaintenanceConfig)
 	mux.HandleFunc("/api/exit", ws.handleExit)
 	mux.HandleFunc("/api/permissions/respond", ws.handlePermissionRespond)
 	mux.HandleFunc("/api/permissions/update", ws.handleGrantUpdate)
@@ -531,6 +542,26 @@ func (ws *WebServer) handleUnpair(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+
+func (ws *WebServer) handleMaintenanceConfig(w http.ResponseWriter,r *http.Request){
+ if !ws.checkToken(r)||r.Method!=http.MethodPost {
+  http.Error(w,"Forbidden",http.StatusForbidden);return
+ }
+ ws.stateMu.RLock();role:=ws.state.Role;ws.stateMu.RUnlock()
+ if role!="Host (Windows)" || ws.onMaintenanceConfigure==nil {
+  http.Error(w,"Windows-only maintenance configuration",http.StatusForbidden);return
+ }
+ r.Body=http.MaxBytesReader(w,r.Body,8192)
+ var req struct{Action string `json:"action"`;SourceRoot string `json:"source_root"`}
+ if err:=json.NewDecoder(r.Body).Decode(&req);err!=nil{
+  http.Error(w,"bad maintenance request",http.StatusBadRequest);return
+ }
+ if err:=ws.onMaintenanceConfigure(req.Action,req.SourceRoot);err!=nil{
+  http.Error(w,err.Error(),http.StatusBadRequest);return
+ }
+ w.Header().Set("Content-Type","application/json")
+ _=json.NewEncoder(w).Encode(map[string]bool{"ok":true})
+}
 
 func (ws *WebServer) handleProjectAction(w http.ResponseWriter,r *http.Request) {
  if !ws.checkToken(r) || r.Method!=http.MethodPost {
