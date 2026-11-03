@@ -380,15 +380,18 @@ func (s *StdioServer) handleToolsList(req *JSONRPCRequest) {
 		},
 		{
 			Name:        "run_command",
-			Description: "Chạy lệnh build/test đã khai báo trong config trên Windows; trả job_id nếu lệnh chưa xong.",
+			Description: "Chạy named build command hoặc Windows Shell argv tùy ý theo Actual Exec Grant; trả job_id nếu chưa xong.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"project":      map[string]string{"type": "string", "description": "Tên project trong config"},
-					"command":      map[string]string{"type": "string", "description": "ID lệnh được khai báo trong config"},
+					"command":      map[string]string{"type": "string", "description": "ID lệnh build/test đã đặt tên (khi không có argv)"},
+					"argv": map[string]any{"type":"array","items":map[string]string{"type":"string"},
+						"description":"Windows Shell/executable + args, ví dụ ['powershell','-NoProfile','-Command','...']; yêu cầu Exec Grant"},
+					"workdir":map[string]string{"type":"string","description":"Windows working directory cho argv; mặc định root dự án"},
 					"wait_seconds": map[string]any{"type": "integer", "description": "Thời gian chờ tối đa; mặc định 600", "default": 600},
 				},
-				"required": []string{"project", "command"},
+				"required": []string{"project"},
 			},
 		},
 		{
