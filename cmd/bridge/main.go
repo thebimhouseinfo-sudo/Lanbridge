@@ -745,13 +745,15 @@ func runHost(args []string) {
 			}
 			tools, warnings := mcpMgr.AllTools()
 			sessionErrors = append(sessionErrors, warnings...)
-			toolMaps := make([]map[string]any, len(tools))
-			for i, t := range tools {
-				toolMaps[i] = map[string]any{
-					"name":        t.Name,
-					"description": t.Description,
-					"inputSchema": t.InputSchema,
-				}
+			// A previous project's cached MCP session must never leak tools
+			// into the currently opened project's list.
+			toolMaps := make([]map[string]any,0,len(tools))
+			for _,t:=range tools {
+				if mcpfwd.ExtractProject(t.Name)!=id {continue}
+				toolMaps=append(toolMaps,map[string]any{
+					"name":t.Name,"description":t.Description,
+					"inputSchema":t.InputSchema,
+				})
 			}
 			return protocol.NewResponse(msg.ID, protocol.TypeMCPCall, map[string]any{
 				"tools":  toolMaps,
