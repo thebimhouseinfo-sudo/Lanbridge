@@ -19,6 +19,7 @@ import (
 
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentlock"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/appcontrol"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/store"
 )
@@ -29,6 +30,12 @@ var embedFS embed.FS
 // UIState represents the real-time state broadcast to Web UI via SSE
 type UIState struct {
 	Role               string                  `json:"role"`
+	ProjectID          string                  `json:"project_id,omitempty"`
+	ProjectReady       bool                    `json:"project_ready"`
+	ProjectError       string                  `json:"project_error,omitempty"`
+	ProjectConfigs     []string                `json:"project_configs,omitempty"`
+	BlacklistEntries   []projectconfig.Rule    `json:"blacklist_entries,omitempty"`
+	BlacklistLocked    bool                    `json:"blacklist_locked"`
 	ListenAddr         string                  `json:"listen_addr"`
 	Connected          bool                    `json:"connected"`
 	RunningCommand     bool                    `json:"running_command"`
@@ -98,6 +105,11 @@ type WebServer struct {
 	onUnpair            func() error
 	onExit              func()
 	onHostConnect       func(address string) error
+	onProjectList       func() ([]string,error)
+	onProjectSetup      func(id string) error
+	onProjectOpen       func(id string) error
+	onBlacklistLock     func(locked bool) error
+	onBlacklistEdit     func(entries []projectconfig.Rule) error
 	onPermissionRespond func(id string, approved bool, capabilities []string) error
 	onGrantUpdate       func(path string, capabilities []string) error
 	onGrantRevoke       func(path string) error
@@ -152,6 +164,23 @@ func (ws *WebServer) SetHostConnectionHandler(onConnect func(address string) err
 
 func (ws *WebServer) SetPairCodeHandler(onSubmit func(code string) error) {
 	ws.onPairCode = onSubmit
+}
+
+// SetProjectHandlers routes local profile actions to each machine's own
+// App Data. On Windows only the human UI opens permissions; Mac may also
+// expose an existing-only read-only Open to the local agent.
+func (ws *WebServer) SetProjectHandlers(
+ list func() ([]string,error),
+ setup func(string) error,
+ open func(string) error,
+ lock func(bool) error,
+ edit func([]projectconfig.Rule) error,
+) {
+ ws.onProjectList=list
+ ws.onProjectSetup=setup
+ ws.onProjectOpen=open
+ ws.onBlacklistLock=lock
+ ws.onBlacklistEdit=edit
 }
 
 // SetPermissionHandlers registers host-side permission review actions.
@@ -224,6 +253,7 @@ func (ws *WebServer) Start() {
 	mux.HandleFunc("/api/pair/submit", ws.handleSubmitPairCode)
 	mux.HandleFunc("/api/unpair", ws.handleUnpair)
 	mux.HandleFunc("/api/config/open", ws.handleOpenConfig)
+	mux.HandleFunc("/api/project/action", ws.handleProjectAction)
 	mux.HandleFunc("/api/exit", ws.handleExit)
 	mux.HandleFunc("/api/permissions/respond", ws.handlePermissionRespond)
 	mux.HandleFunc("/api/permissions/update", ws.handleGrantUpdate)
@@ -468,6 +498,42 @@ func (ws *WebServer) handleUnpair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+
+func (ws *WebServer) handleProjectAction(w http.ResponseWriter,r *http.Request) {
+ if !ws.checkToken(r) || r.Method!=http.MethodPost {
+  http.Error(w,"Forbidden",http.StatusForbidden);return
+ }
+ r.Body=http.MaxBytesReader(w,r.Body,1024*1024)
+ var req struct {
+  Action string `json:"action"`
+  ProjectID string `json:"project_id"`
+  Entries []projectconfig.Rule `json:"entries"`
+ }
+ if err:=json.NewDecoder(r.Body).Decode(&req);err!=nil{
+  http.Error(w,"invalid project action",http.StatusBadRequest);return
+ }
+ var err error
+ var ids []string
+ switch req.Action {
+ case "list":
+  if ws.onProjectList==nil {err=errors.New("config list unavailable")} else {ids,err=ws.onProjectList()}
+ case "setup":
+  if ws.onProjectSetup==nil {err=errors.New("project setup unavailable")} else {err=ws.onProjectSetup(req.ProjectID)}
+ case "open":
+  if ws.onProjectOpen==nil {err=errors.New("project open unavailable")} else {err=ws.onProjectOpen(req.ProjectID)}
+ case "lock","unlock":
+  if ws.onBlacklistLock==nil {err=errors.New("Mac blacklist UI unavailable")} else {err=ws.onBlacklistLock(req.Action=="lock")}
+ case "edit":
+  if ws.onBlacklistEdit==nil {err=errors.New("Mac blacklist editing unavailable")} else {err=ws.onBlacklistEdit(req.Entries)}
+ default:
+  http.Error(w,"unknown project action",http.StatusBadRequest);return
+ }
+ if err!=nil {http.Error(w,err.Error(),http.StatusBadRequest);return}
+ if ids==nil {ids=[]string{}}
+ w.Header().Set("Content-Type","application/json")
+ _=json.NewEncoder(w).Encode(map[string]any{"ok":true,"projects":ids})
 }
 
 func (ws *WebServer) handleOpenConfig(w http.ResponseWriter, r *http.Request) {
