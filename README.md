@@ -2,32 +2,27 @@
 
 Bridge kết nối máy Mac Apple Silicon với máy Windows 10/11 trên cùng mạng Wi-Fi để thử dự án: trao đổi chat, cấp quyền đọc/sync, chạy các lệnh build đã cấu hình và chuyển tiếp MCP của dự án. Đây là bản thử cá nhân; kiểm thử trên hai máy thật và tích hợp CAI vẫn đang chờ thực hiện.
 
-## Lấy gói cài thử
+## Cài bản thử qua shell
 
-Mở [GitHub Actions](https://github.com/thebimhouseinfo-sudo/testbridge/actions), chọn lần chạy **Windows and macOS checks** thành công ứng với commit muốn thử. Ở cuối trang tải hai artifact:
+Bản `test-2026-11-03` là bản thử, chưa được nghiệm thu trên hai máy thật. Mỗi lệnh tải gói từ GitHub vào thư mục tạm riêng, giải nén rồi chạy installer. Cần có kết nối Internet khi cài.
 
-- `testbridge-windows-amd64`: `bridge.exe` và `install.ps1`.
-- `testbridge-macos-arm64`: chứa `testbridge-macos-arm64.zip`; giải nén file này để có thư mục `mac` chứa `.app`, `bin`, installer và hướng dẫn MCP.
-
-Các artifact dùng để thử, không phải bản release đã nghiệm thu. Cần đăng nhập GitHub để tải artifact; chúng có thời hạn lưu giữ của Actions.
-
-## Cài và mở
-
-**Windows:** Giải nén artifact vào một thư mục; mở PowerShell trong thư mục đó và chạy:
+**Windows 10/11 x64:** Mở PowerShell và chạy một lệnh:
 
 ```powershell
-.\install.ps1
+& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest 'https://github.com/thebimhouseinfo-sudo/testbridge/releases/download/test-2026-11-03/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; Expand-Archive "$d\package.zip" -DestinationPath $d; & "$d\install.ps1" }
 ```
 
 Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut và tạo `%APPDATA%\LanBridge\config.json` nếu chưa có. Chạy shortcut, tìm icon Bridge trong khay hệ thống, chọn **Mở giao diện**. Khi Windows Firewall hỏi, cho phép trên mạng Private tin cậy. Cài lại giữ file config hiện có.
 
-**Mac:** Giải nén artifact và `testbridge-macos-arm64.zip`, mở Terminal trong thư mục `mac` rồi chạy:
+**Mac Apple Silicon:** Mở Terminal và chạy một lệnh:
 
 ```sh
-./install.sh
+d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/testbridge/releases/download/test-2026-11-03/testbridge-macos-arm64.zip' -o "$d/package.zip" && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
 ```
 
 Installer chép app vào `~/Applications/LAN Bridge.app`, chép lệnh `bridge` vào `~/.local/bin` và mở app. Chọn **Mở giao diện** từ icon trên thanh menu; cho phép Local Network nếu macOS hỏi. Nếu macOS chặn app chưa được ký, làm theo thông báo của hệ điều hành trước khi tiếp tục.
+
+Gói và kết quả build có thể xem tại [GitHub Releases](https://github.com/thebimhouseinfo-sudo/testbridge/releases/tag/test-2026-11-03) và [GitHub Actions](https://github.com/thebimhouseinfo-sudo/testbridge/actions).
 
 Giao diện ưu tiên mở cửa sổ Edge hoặc Chrome cỡ ban đầu khoảng 500 × 900; có thể thay đổi kích thước. Khi không tìm thấy hoặc không khởi chạy được, Bridge thử trình duyệt mặc định. Đóng cửa sổ chỉ đóng giao diện: chọn **Thoát** trong Bridge để kết thúc phiên.
 

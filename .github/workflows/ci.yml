@@ -57,3 +57,30 @@ jobs:
           name: testbridge-macos-arm64
           path: dist/testbridge-macos-arm64.zip
           if-no-files-found: error
+
+  publish-test-packages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: testbridge-windows-amd64
+          path: windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: testbridge-macos-arm64
+          path: macos
+      - name: Create test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view test-2026-11-03 >/dev/null 2>&1; then
+            echo 'Test release already exists; leaving it unchanged.'
+            exit 0
+          fi
+          (cd windows && zip -q ../testbridge-windows-amd64.zip bridge.exe install.ps1)
+          gh release create test-2026-11-03 testbridge-windows-amd64.zip macos/testbridge-macos-arm64.zip --target "$GITHUB_SHA" --prerelease --title "Test build 2026-11-03" --notes "Test build; two-machine acceptance is pending."
