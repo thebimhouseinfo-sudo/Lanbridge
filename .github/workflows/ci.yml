@@ -28,6 +28,22 @@ jobs:
         run: go vet ./...
       - name: Check embedded UI JavaScript syntax
         run: node tools/check-ui-js.cjs
+      - name: Verify README Windows install command
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $readme = Get-Content README.md -Raw
+          $match = [regex]::Match($readme, '(?s)```powershell\s*\r?\n(.*?)\r?\n```')
+          if (-not $match.Success) { throw 'README PowerShell install command not found' }
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'lanbridge-readme-local'
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'lanbridge-readme-roaming'
+          $commandFile = Join-Path $env:RUNNER_TEMP 'lanbridge-readme-install.ps1'
+          [System.IO.File]::WriteAllText($commandFile, $match.Groups[1].Value, [System.Text.UTF8Encoding]::new($true))
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File $commandFile
+          if ($LASTEXITCODE -ne 0) { throw 'README PowerShell command failed' }
+          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'LanBridge\bridge.exe'))) { throw 'README install did not install bridge.exe' }
+          if (-not (Test-Path (Join-Path $env:APPDATA 'LanBridge\config.json'))) { throw 'README install did not create config.json' }
       - name: Race detector (macOS)
         if: runner.os == 'macOS'
         run: go test -race -count=1 ./...
