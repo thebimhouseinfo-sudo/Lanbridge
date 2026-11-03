@@ -398,6 +398,7 @@ func runHost(args []string) {
 	}
 	webUI.SetAppHandlers(
 		func(id string, allowed bool) error {
+			if !hostSession.Snapshot().Ready{return projectconfig.ErrNotOpen}
 			if err := appManager.SetPermission(id, allowed); err != nil {
 				return err
 			}
@@ -407,6 +408,7 @@ func runHost(args []string) {
 			return nil
 		},
 		func(id, action string) (string, error) {
+			if !hostSession.Snapshot().Ready{return "",projectconfig.ErrNotOpen}
 			return appManager.Control(id, action)
 		},
 	)
