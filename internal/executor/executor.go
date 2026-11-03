@@ -253,7 +253,19 @@ func (m *Manager) RunCommand(proj *store.ProjectConfig, commandID string) (*Job,
 	if !ok || len(argv) == 0 {
 		return nil, fmt.Errorf("lệnh '%s' không được khai báo trong config cho project '%s'", commandID, proj.Name)
 	}
+	return m.runArgv(proj,commandID,argv,proj.Root)
+}
 
+// RunShell executes an actual user-granted Windows command, represented as
+// argv (including explicit PowerShell or cmd when desired). No artificial
+// eight-command whitelist is applied; the host checks Exec permission.
+func (m *Manager) RunShell(proj *store.ProjectConfig, argv []string, workdir string) (*Job,error) {
+ if len(argv)==0 || argv[0]=="" {return nil,errors.New("ERR_PARAMS: argv must include an executable")}
+ if workdir=="" {workdir=proj.Root}
+ return m.runArgv(proj,"shell",argv,workdir)
+}
+
+func (m *Manager) runArgv(proj *store.ProjectConfig, commandID string, argv []string, workdir string) (*Job,error) {
 	m.mu.Lock()
 	existing := m.jobs[proj.Name]
 	if existing != nil {
@@ -284,7 +296,7 @@ func (m *Manager) RunCommand(proj *store.ProjectConfig, commandID string) (*Job,
 	m.mu.Unlock()
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = proj.Root
+	cmd.Dir = workdir
 	cmd.Stdout = jobOutput{job: job}
 	cmd.Stderr = jobOutput{job: job, isStderr: true}
 	cmd.WaitDelay = waitDelay
