@@ -1284,6 +1284,12 @@ func runClient(args []string) {
 		slog.Error("Failed to prepare client certificate identity", "error", err)
 		os.Exit(1)
 	}
+	// Mac owns only local blacklist files; it never downloads the Windows
+	// permissions file, and agent Open remains existing-only.
+	macDir,err:=store.GetConfigDir()
+	if err!=nil{slog.Error("Failed to determine Mac config directory","error",err);os.Exit(1)}
+	macProfiles,err:=projectconfig.New(macDir)
+	if err!=nil{slog.Error("Failed to prepare Mac project configs","error",err);os.Exit(1)}
 	var pairedHostFingerprint atomic.Value
 	pairedHostFingerprint.Store(state.PairedPeerFingerprint)
 
@@ -1358,6 +1364,91 @@ func runClient(args []string) {
 	var activeClient *transport.Client
 	var activeTarget string
 	var clientPairingMu sync.Mutex
+	var macProfileMu sync.RWMutex
+	var macProjectID string
+	var macBlacklist projectconfig.MacBlacklist
+	var macProjectReady bool
+
+	getMacProfile:=func() (string,projectconfig.MacBlacklist,bool) {
+		macProfileMu.RLock();defer macProfileMu.RUnlock()
+		return macProjectID,macBlacklist,macProjectReady
+	}
+	clearMacProfile:=func() {
+		macProfileMu.Lock()
+		macProjectID=""
+		macBlacklist=projectconfig.MacBlacklist{}
+		macProjectReady=false
+		macProfileMu.Unlock()
+		webUI.UpdateState(func(st *ui.UIState){
+			st.ProjectID="";st.ProjectReady=false
+			st.ProjectError=projectconfig.ErrNotOpen.Error()
+			st.BlacklistEntries=nil
+		})
+		webUI.NotifyMCPToolsChanged()
+	}
+	openMacProfile:=func(id string) error {
+		// LoadMac is read-only and never creates a missing file.
+		loaded,err:=macProfiles.LoadMac(id);if err!=nil{return err}
+		clientMu.Lock();client:=activeClient;clientMu.Unlock()
+		if client==nil || !client.IsConnected(){return errors.New("connect to Windows before opening project blacklist")}
+		payload,_:=json.Marshal(map[string]any{"project_id":id,"loaded":true})
+		resp,err:=client.RoundTrip(&protocol.Message{
+			ID:fmt.Sprintf("profile-%d",time.Now().UnixNano()),
+			Type:protocol.TypeProjectStatus,Payload:payload,
+		},15*time.Second)
+		if err!=nil{return err}
+		if resp.Error!=nil{return resp.Error}
+		if resp.Type!=protocol.TypeProjectStatus{return errors.New("unexpected project status response")}
+		var status projectconfig.Status
+		if err:=json.Unmarshal(resp.Payload,&status);err!=nil{return err}
+		macProfileMu.Lock()
+		macProjectID=id
+		macBlacklist=loaded
+		macProjectReady=status.Ready
+		macProfileMu.Unlock()
+		locked,err:=macProfiles.IsLocked(id);if err!=nil{return err}
+		webUI.UpdateState(func(st *ui.UIState){
+			st.ProjectID=id;st.ProjectReady=status.Ready
+			st.ProjectError=status.Error;st.BlacklistLocked=locked
+			st.BlacklistEntries=append([]projectconfig.Rule(nil),loaded.Entries...)
+		})
+		webUI.NotifyMCPToolsChanged()
+		return nil
+	}
+	webUI.SetProjectHandlers(
+		func() ([]string,error){return macProfiles.ListIDs(true)},
+		func(id string) error {
+			// Mac UI First-time Setup only, NOT agent config.load.
+			_,err:=macProfiles.InitializeMacEmpty(id)
+			if err!=nil{return err}
+			ids,_:=macProfiles.ListIDs(true)
+			webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+			return nil
+		},
+		openMacProfile,
+		func(locked bool) error {
+			id,_,_:=getMacProfile()
+			if id==""{return projectconfig.ErrNotOpen}
+			if err:=macProfiles.SetLocked(id,locked);err!=nil{return err}
+			webUI.UpdateState(func(st *ui.UIState){st.BlacklistLocked=locked})
+			return nil
+		},
+		func(entries []projectconfig.Rule) error {
+			id,_,_:=getMacProfile()
+			if id==""{return projectconfig.ErrNotOpen}
+			if err:=macProfiles.UpdateMac(id,entries);err!=nil{return err}
+			loaded,err:=macProfiles.LoadMac(id);if err!=nil{return err}
+			macProfileMu.Lock();macBlacklist=loaded;macProfileMu.Unlock()
+			webUI.UpdateState(func(st *ui.UIState){
+				st.BlacklistEntries=append([]projectconfig.Rule(nil),loaded.Entries...)
+			})
+			webUI.NotifyMCPToolsChanged()
+			return nil
+		},
+	)
+	if ids,err:=macProfiles.ListIDs(true);err==nil{
+		webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+	}
 	var mcpAuthInfo *agentmcp.AuthInfo
 	discoveryCtx, cancelDiscovery := context.WithCancel(context.Background())
 	var shutdownOnce sync.Once
@@ -1449,6 +1540,7 @@ func runClient(args []string) {
 
 		client := transport.NewClient(address, transport.NewClientTLSConfig(certPair, pairedHostFingerprint.Load().(string)))
 		client.SetCallbacks(func() {
+			clearMacProfile()
 			slog.Info("Connected to bridge host", "address", address)
 			webUI.UpdateState(func(s *ui.UIState) {
 				s.Connected = true
@@ -1473,6 +1565,7 @@ func runClient(args []string) {
 				}
 			}
 		}, func() {
+			clearMacProfile()
 			slog.Warn("Bridge host connection dropped", "address", address)
 			webUI.UpdateState(func(s *ui.UIState) {
 				s.Connected = false
@@ -1496,14 +1589,29 @@ func runClient(args []string) {
 			if msg.Type == protocol.TypeUIState {
 				var update struct {
 					Permissions []store.PermissionGrant `json:"permissions"`
+					ProjectID string `json:"project_id"`
+					ProjectReady bool `json:"project_ready"`
+					ProjectError string `json:"project_error"`
 				}
 				if err := json.Unmarshal(msg.Payload, &update); err != nil {
 					slog.Warn("Invalid host UI state update", "error", err)
 					return
 				}
+				id,_,_:=getMacProfile()
+				ready:=id!="" && id==update.ProjectID && update.ProjectReady
+				macProfileMu.Lock();macProjectReady=ready;macProfileMu.Unlock()
 				webUI.UpdateState(func(s *ui.UIState) {
 					s.Permissions = update.Permissions
+					s.ProjectReady=ready
+					if ready {
+						s.ProjectError=""
+					}else if id!="" && update.ProjectID!="" && id!=update.ProjectID {
+						s.ProjectError=projectconfig.ErrMismatch.Error()
+					}else {
+						s.ProjectError=update.ProjectError
+					}
 				})
+				webUI.NotifyMCPToolsChanged()
 				return
 			}
 			if msg.Type == protocol.TypeUnpair && pairedHostFingerprint.Load().(string) != "" {
