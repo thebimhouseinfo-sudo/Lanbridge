@@ -549,7 +549,7 @@ func (s *StdioServer) sendChatToBridge(text string) error {
 		if readErr != nil {
 			return fmt.Errorf("chat send failed with HTTP %d and response read error: %w", response.StatusCode, readErr)
 		}
-		return fmt.Errorf("chat send failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+		return fmt.Errorf("chat send failed with HTTP %d (response body omitted)", response.StatusCode)
 	}
 	return nil
 }
@@ -595,7 +595,7 @@ func (s *StdioServer) reportActivity(status string) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
-		responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
+		_, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
 		if readErr != nil {
 			fmt.Fprintf(os.Stderr, "[bridge mcp] Activity trả HTTP %d; đọc phản hồi lỗi: %v\n", response.StatusCode, readErr)
 			return
