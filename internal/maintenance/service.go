@@ -46,8 +46,8 @@ func New(path,appData string)(*Service,error){
  s:=&Service{path:path,appData:appData}
  data,err:=os.ReadFile(path)
  if errors.Is(err,os.ErrNotExist){return s,nil}
- if err!=nil{return nil,ErrUnavailable}
- if json.Unmarshal(data,&s.state)!=nil{return nil,ErrUnavailable}
+ if err!=nil{return s,ErrUnavailable}
+ if json.Unmarshal(data,&s.state)!=nil{return s,ErrUnavailable}
  return s,nil
 }
 func isBridgeSource(root string) bool{
