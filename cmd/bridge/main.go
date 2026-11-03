@@ -177,7 +177,9 @@ func runHost(args []string) {
 	var stopMDNS func()
 	if !*headless {
 		tray = ui.NewTrayManager(func() {
-			_ = webUI.OpenBrowser()
+			if err := webUI.OpenBrowser(); err != nil {
+				slog.Error("Could not open Bridge UI")
+			}
 		}, func() {
 			slog.Info("Exiting bridge host...")
 			if stopMDNS != nil {
@@ -1223,7 +1225,9 @@ func runClient(args []string) {
 	var shutdown func()
 	if !*headless {
 		tray = ui.NewTrayManager(func() {
-			_ = webUI.OpenBrowser()
+			if err := webUI.OpenBrowser(); err != nil {
+				slog.Error("Could not open Bridge UI")
+			}
 		}, func() {
 			if shutdown != nil {
 				shutdown()

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -286,17 +287,9 @@ func (ws *WebServer) URL() string {
 
 // OpenBrowser opens the user's default browser to the UI
 func (ws *WebServer) OpenBrowser() error {
-	u := ws.URL()
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
-	case "darwin":
-		cmd = exec.Command("open", u)
-	default:
-		cmd = exec.Command("xdg-open", u)
-	}
-	return cmd.Start()
+	return openUIWindow(runtime.GOOS, ws.URL(), os.Getenv, browserFileExists, func(name string, args ...string) error {
+		return exec.Command(name, args...).Start()
+	})
 }
 
 func (ws *WebServer) checkToken(r *http.Request) bool {

@@ -29,10 +29,31 @@ jobs:
       - name: Build Windows GUI
         if: runner.os == 'Windows'
         shell: pwsh
-        run: go build -ldflags="-s -w -H windowsgui" -o bridge.exe ./cmd/bridge
+        run: |
+          New-Item -ItemType Directory -Force dist/windows | Out-Null
+          go build -ldflags="-s -w -H windowsgui" -o dist/windows/bridge.exe ./cmd/bridge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item scripts/install.ps1 dist/windows/
       - name: Build macOS app
         if: runner.os == 'macOS'
         run: make dist-mac
       - name: Check macOS installer syntax
         if: runner.os == 'macOS'
         run: sh -n scripts/install.sh
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/mac dist/testbridge-macos-arm64.zip
+      - name: Upload Windows test package
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: testbridge-windows-amd64
+          path: dist/windows/
+          if-no-files-found: error
+      - name: Upload macOS test package
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: testbridge-macos-arm64
+          path: dist/testbridge-macos-arm64.zip
+          if-no-files-found: error
