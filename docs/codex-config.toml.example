@@ -1,0 +1,4 @@
+[mcp_servers.lanbridge]
+command = "/Users/USERNAME/Applications/LAN Bridge.app/Contents/MacOS/bridge"
+args = ["mcp"]
+enabled = true

@@ -5,6 +5,7 @@ go 1.22
 require (
 	fyne.io/systray v1.11.0
 	github.com/grandcat/zeroconf v1.0.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	golang.org/x/sys v0.26.0
 )
 

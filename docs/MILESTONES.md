@@ -33,12 +33,16 @@ Local Go tests, `go vet ./...`, and the Windows GUI build pass. **- test require
 - Một hàm kiểm tra đường dẫn dùng chung (chặn `..`, symlink/junction ra ngoài).
 - Read: list, metadata, đọc theo đoạn, đọc N dòng cuối.
 - Sync nhiều file/lần ≤ 5 MB, ghi tạm → rename, trả SHA-256.
-- `bridge mcp`: MCP server stdio cho Mac agent với các tool trên; đo hỗ trợ `list_changed` và thời gian chờ tool của Claude Code.
+- `bridge mcp`: MCP server stdio cho Claude Code hoặc Codex; Settings tự quản lý đúng một đăng ký user-scope, đọc hai cấu hình agent và giữ nguyên MCP server không liên quan.
+- Khóa liên-process giữ độc quyền trong suốt vòng đời `bridge mcp`; instance thứ hai và đổi agent khi đang có phiên phải báo bận rõ.
 
 **Verification:**
 - Agent xin quyền → Accept → đọc log thành công.
 - Đọc ngoài phạm vi, `..\`, junction ra ngoài → từ chối. Sync ngoài project → từ chối.
 - > 5 MB → từ chối, không file nào bị ghi. Thu hồi → lần gọi sau bị từ chối.
+- Chuyển Claude ↔ Codex chỉ để lại đăng ký Bridge của agent được chọn; các MCP entry khác được giữ nguyên; lỗi CLI/config được báo rõ.
+- Hai tiến trình `bridge mcp` cùng lúc: tiến trình đầu giữ khóa, tiến trình sau nhận lỗi bận; khóa được giải phóng sau khi tiến trình đầu thoát.
+- **- test required:** xác nhận Codex CLI/Claude Code thực trên macOS nhận cấu hình, khởi chạy và ngắt MCP như dự kiến.
 
 ---
 

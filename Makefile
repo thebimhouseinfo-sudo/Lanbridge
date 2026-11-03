@@ -28,6 +28,7 @@ dist-mac:
 	@mkdir -p dist/mac/bin
 	@cp -f "dist/mac/LAN Bridge.app/Contents/MacOS/bridge" dist/mac/bin/bridge
 	@cp -f scripts/install.sh dist/mac/
+	@cp -f docs/CODEX_SETUP.md docs/codex-config.toml.example dist/mac/
 	@chmod +x dist/mac/install.sh
 	@echo "Built dist/mac/LAN Bridge.app successfully."
 

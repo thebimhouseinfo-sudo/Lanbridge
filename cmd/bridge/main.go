@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -17,6 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentconfig"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentlock"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentmcp"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/appcontrol"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/executor"
@@ -80,7 +83,7 @@ Usage:
 Commands:
   host      Run on Windows to host commands, MCP forwarding, and file operations
   client    Run on macOS to pair and coordinate with the Windows host
-  mcp       Run on macOS as a stdio MCP server for agent tools (e.g. Claude Code)
+  mcp       Run on macOS as a stdio MCP server for Claude Code or Codex
   version   Show version information
   help      Show this help message
 
@@ -1184,10 +1187,36 @@ func runClient(args []string) {
 		os.Exit(1)
 	}
 
+	bridgeExecutable, executableErr := os.Executable()
+	var agentConfigManager *agentconfig.Manager
+	var agentConfigInitErr error
+	if executableErr != nil {
+		agentConfigInitErr = fmt.Errorf("resolve Bridge executable for MCP registration: %w", executableErr)
+	} else {
+		agentConfigManager, agentConfigInitErr = agentconfig.NewManager(bridgeExecutable)
+	}
+	initialAgentConfigStates := []ui.MCPProviderState{
+		{Provider: string(agentconfig.ProviderClaude), Status: string(agentconfig.StatusInvalid)},
+		{Provider: string(agentconfig.ProviderCodex), Status: string(agentconfig.StatusInvalid)},
+	}
+	initialAgentProvider := ""
+	if agentConfigManager != nil {
+		snapshot := agentConfigManager.Inspect()
+		initialAgentConfigStates = toUIAgentConfigStates(snapshot)
+		initialAgentProvider = selectedAgentProvider(snapshot)
+	}
+	if agentConfigInitErr != nil {
+		slog.Error("Agent MCP configuration manager is unavailable", "error", agentConfigInitErr)
+		initialAgentConfigStates[0].Message = agentConfigInitErr.Error()
+		initialAgentConfigStates[1].Message = agentConfigInitErr.Error()
+	}
+
 	webUI.UpdateState(func(s *ui.UIState) {
 		s.Connected = false
 		s.PairedFP = pairedHostFingerprint.Load().(string)
-		s.MCPRegistration = "claude mcp add lanbridge -- ~/.local/bin/bridge mcp"
+		s.MCPRegistration = "Chọn Claude Code hoặc Codex. Bridge chỉ cho phép một agent MCP hoạt động cùng lúc."
+		s.MCPProvider = initialAgentProvider
+		s.MCPProviders = initialAgentConfigStates
 		s.ChatMessages = []ui.ChatMessage{}
 	})
 	var tray *ui.TrayManager
@@ -1460,6 +1489,17 @@ func runClient(args []string) {
 		webUI.AddChatMessage(confirmed)
 		return nil
 	})
+	webUI.SetMCPProviderHandler(func(ctx context.Context, provider string) ([]ui.MCPProviderState, error) {
+		if agentConfigManager == nil {
+			return initialAgentConfigStates, agentConfigInitErr
+		}
+		snapshot, err := agentConfigManager.Select(ctx, agentconfig.Provider(provider))
+		if err != nil {
+			snapshot = agentConfigManager.Inspect()
+			slog.Warn("MCP provider change failed", "provider", provider, "error", err)
+		}
+		return toUIAgentConfigStates(snapshot), err
+	})
 
 	webUI.SetHostConnectionHandler(func(address string) error {
 		normalized, err := normalizeHostAddress(address)
@@ -1711,16 +1751,55 @@ func persistLastConnectedAddress(stateStore *store.StateStore, address string) e
 }
 
 func runMCP(args []string) {
-	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
-	if err := fs.Parse(args); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+	if err := runMCPWithLock(args, agentlock.Acquire, os.Stdin, os.Stdout, os.Stderr); err != nil {
 		os.Exit(1)
+	}
+}
+
+func runMCPWithLock(
+	args []string,
+	acquire func() (*agentlock.Lock, error),
+	input io.Reader,
+	output io.Writer,
+	errorOutput io.Writer,
+) error {
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	fs.SetOutput(errorOutput)
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse MCP flags: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "[LAN Bridge MCP] Stdio bridge starting for agent...")
-	server := agentmcp.NewStdioServer(nil, nil)
-	if err := server.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "[LAN Bridge MCP] Stdio loop error: %v\n", err)
-		os.Exit(1)
+	lock, err := acquire()
+	if err != nil {
+		fmt.Fprintf(errorOutput, "[LAN Bridge MCP] Không thể khởi động: %v\n", err)
+		return err
 	}
+	fmt.Fprintln(errorOutput, "[LAN Bridge MCP] Stdio bridge starting for agent...")
+	server := agentmcp.NewStdioServer(input, output)
+	runErr := server.Run()
+	releaseErr := lock.Close()
+	if runErr != nil {
+		fmt.Fprintf(errorOutput, "[LAN Bridge MCP] Stdio loop error: %v\n", runErr)
+	}
+	if releaseErr != nil {
+		fmt.Fprintf(errorOutput, "[LAN Bridge MCP] Failed to release process lock: %v\n", releaseErr)
+	}
+	return errors.Join(runErr, releaseErr)
+}
+
+func toUIAgentConfigStates(snapshot agentconfig.Snapshot) []ui.MCPProviderState {
+	return []ui.MCPProviderState{
+		{Provider: string(snapshot.Claude.Provider), Status: string(snapshot.Claude.Status), Message: snapshot.Claude.Message},
+		{Provider: string(snapshot.Codex.Provider), Status: string(snapshot.Codex.Status), Message: snapshot.Codex.Message},
+	}
+}
+
+func selectedAgentProvider(snapshot agentconfig.Snapshot) string {
+	if snapshot.Claude.Status == agentconfig.StatusManagedActive && snapshot.Codex.Status == agentconfig.StatusAbsent {
+		return string(agentconfig.ProviderClaude)
+	}
+	if snapshot.Codex.Status == agentconfig.StatusManagedActive && snapshot.Claude.Status == agentconfig.StatusAbsent {
+		return string(agentconfig.ProviderCodex)
+	}
+	return ""
 }

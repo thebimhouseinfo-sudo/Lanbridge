@@ -1,6 +1,6 @@
-# Technical Proposal — LAN Test Bridge v1.0 (rev 6)
+# Technical Proposal — LAN Test Bridge v1.0 (rev 8)
 
-Status: FINAL rev 7 — Critic CR PASS. Rev 3 receipt covers only rev 3; rev 6 was previously reviewed.
+Status: FINAL rev 8 — Critic CR PASS. Adds Codex support and exclusive MCP lifecycle management; native Mac validation remains pending.
 
 ## Overview
 
@@ -10,7 +10,7 @@ Một binary Go (`bridge`) chạy 3 vai:
 |---|---|---|---|
 | `bridge host` | Windows | Windows user | Giữ kết nối, gate quyền, chạy lệnh/MCP/app. Icon tray + trang UI. |
 | `bridge client` | macOS | Mac user | Giữ kết nối tới host, pairing, chat. Icon menu bar + trang UI. |
-| `bridge mcp` | macOS | Mac agent (Claude Code…) | MCP server stdio nhỏ do agent tự khởi chạy; chuyển yêu cầu sang `bridge client` đang chạy. |
+| `bridge mcp` | macOS | Một agent được chọn (Claude Code hoặc Codex) | MCP server stdio nhỏ do agent tự khởi chạy; chuyển yêu cầu sang `bridge client` đang chạy. |
 
 Giao tiếp Mac ↔ Windows: JSON messages trên TLS TCP (mTLS, pin fingerprint), Wi-Fi LAN.
 
@@ -27,6 +27,7 @@ Danh sách này là nguồn duy nhất; `PROJECT_PROFILE.md` trỏ về đây.
   có xác nhận khóa Tag/Verify) vào `internal/third_party/cpace/` kèm file LICENSE (BSD), ghi rõ nguồn và commit.
   Không tự viết crypto.
 - `golang.org/x/sys/windows` — Job Object, `CREATE_NO_WINDOW`, `WM_CLOSE`.
+- `github.com/pelletier/go-toml/v2` — chỉ đọc và kiểm tra cấu hình Codex TOML; Bridge không serialize lại toàn file.
 - Icon: bộ icon mở **Lucide** (giấy phép ISC), kiểu flat nét đơn. Chỉ dùng lúc phát triển:
   `tools/genicons` (Go, **`go.mod` riêng**, dùng `github.com/srwiley/oksvg` + `rasterx`) chuyển SVG thành PNG/ICO một lần,
   file kết quả commit vào `internal/ui/icons/` kèm LICENSE của Lucide. Binary chạy không mang thêm thư viện nào.
@@ -178,7 +179,7 @@ mất Wi-Fi rồi có lại → tự nối lại; Thoát → process biến mấ
 - Tool cố định: `bridge_status`, `request_access`, `list_dir`, `file_info`, `read_file`, `sync_files`
   (M3 thêm `run_command`, `command_result`; M4 thêm `app_start`, `app_stop` và nối việc gửi chat agent vào chat text hai chiều hiện có theo Task 4.2).
 - Chat không phải capability MCP/chat mới: Criteria §10 đã duyệt gửi/nhận text, script snippets, pasted logs và Copy. MCP cần một tool `chat_send(text)` để agent dùng đúng chat Bridge hiện có, đặc biệt khi thao tác Windows bị chặn hoặc cần user làm tiếp. Tin nhắn nhiều dòng được giữ nguyên; user Windows tự Copy/chạy, Bridge không thực thi chat text.
-- Đăng ký 1 lần trong Claude Code: `claude mcp add lanbridge -- bridge mcp`.
+- Cấu hình provider và singleton được bổ sung tại Task 2.5.
 - **Kiểm tra trên Mac thật trong M2:** Claude Code có nhận `list_changed` không (không → hướng dẫn
   người dùng gõ `/mcp` để tải lại) và thời gian chờ tối đa của một lời gọi tool (dùng để chọn mặc định
   `wait_seconds` ở M3).
@@ -187,6 +188,22 @@ mất Wi-Fi rồi có lại → tự nối lại; Thoát → process biến mấ
 **Kiểm chứng M2:** agent xin quyền → Accept → đọc log; đọc ngoài phạm vi, `..\`,
 junction trỏ ra ngoài → bị từ chối; sync 3 file vào repo và 1 file vào `related_dirs` đúng hash;
 > 5 MB → từ chối và không file nào bị ghi; thu hồi quyền → lần gọi tiếp bị từ chối.
+
+### Task 2.5: Cấu hình Claude Code/Codex và độc quyền MCP
+- `internal/agentlock` (CREATE): `Acquire() (*Lock, error)` trả `ErrBusy` nếu process khác đang giữ khóa; `(*Lock).Close()` giải phóng handle. `lock_unix.go` dùng `flock`; `lock_windows.go` dùng `LockFileEx` qua `x/sys/windows`. File khóa nằm ở `store.GetConfigDir()/mcp.lock`, không bị xóa để giải phóng. Process OS tự nhả khóa khi bị crash/kill.
+- `internal/agentconfig` (CREATE): `Provider` (`claude`, `codex`), `Snapshot` (trạng thái mỗi provider: absent/managed-active/managed-disabled/conflict/invalid), `Inspect()`, `Select(ctx, provider)`. Đọc `~/.claude.json` và `~/.codex/config.toml`; managed entry phải tên `lanbridge`, command là executable tuyệt đối hiện tại của Bridge (canonical path), args chính xác `mcp`. Codex `enabled=false` được nhận diện là `managed-disabled`, không phải provider đang hoạt động.
+- `Inspect()` dùng `encoding/json` và TOML parser để đọc config, không ghi/serialize lại. `Select()` lấy `agentlock.Acquire` trước khi preflight, kiểm tra cả hai file và CLI. Entry `lanbridge` không khớp Bridge, TOML/JSON sai hoặc CLI thiếu → abort không ghi file. Nếu cả hai đều có managed-active entry thì trạng thái ban đầu báo dual registration, không tự đoán provider. Nếu có managed-disabled entry ở target hoặc provider còn lại, `Select()` cũng abort trước mọi lệnh CLI và báo rõ entry nào đang bị disable; không âm thầm bật, xóa hoặc coi nó là đã kết nối. Human có thể xóa entry đó bằng CLI của agent hoặc chủ động sửa cấu hình rồi thử lại. Như vậy disabled-target/non-target đều giữ nguyên byte/nội dung trước đó và không có rollback file nào cần thiết cho trường hợp này. Sau preflight sạch, remove tất cả managed-active entry không được chọn trước rồi mới add target còn thiếu; xác minh lại bằng `Inspect()` để chỉ provider được chọn có managed-active entry, provider kia absent. Lỗi CLI dừng thao tác; manager đọc lại snapshot và rollback đúng các registration active đã đổi về trạng thái ban đầu. Nếu rollback lỗi thì trả lỗi gốc, lỗi rollback cùng snapshot thực tế; không báo thành công giả.
+- Native CLI invocations chạy bằng `exec.CommandContext` với argv riêng, không qua shell: Claude add/remove chỉ định tường minh `--scope user`; Codex dùng user config mặc định. Tên executable CLI được resolve từ PATH/common install paths; không tìm được thì thao tác thất bại rõ và hướng dẫn thủ công. CLI args và binary MCP được truyền riêng, không nội suy shell.
+- `internal/agentmcp/server.go` (MODIFY): `runMCP`/caller acquire cùng `agentlock` trước khi đọc MCP stdio và giữ lock đến khi `Run()` kết thúc; lock busy → thông báo stderr, exit khác 0, không ghi stdout JSON-RPC. Release xảy ra trước mọi nhánh return/exit.
+- `cmd/bridge/main.go` (MODIFY): tạo `agentconfig.Manager` từ `os.Executable()`, đọc Snapshot ban đầu; callback Settings gọi `Select`, sau đó cập nhật trạng thái và warning UI theo Snapshot thực tế. Không giữ trạng thái provider riêng mâu thuẫn với file config.
+- Caller contract: `internal/ui/embed/index.html` gửi `POST /api/mcp/provider` với `{provider:"claude"|"codex"}`; `internal/ui/web.go` xác thực method/body/token, gọi callback, trả success chỉ sau xác minh Snapshot, và phát SSE. Lỗi busy trả HTTP 409, invalid provider 400, lỗi config/CLI 500; JS hiện lỗi cụ thể và tải lại Snapshot sau cả thành công/thất bại. State thêm provider và hai trạng thái config; không hiển thị selector ngoài Settings.
+- `internal/agentlock/lock_test.go` (CREATE): subprocess helper giữ khóa, tiến trình thứ hai phải nhận `ErrBusy`, rồi sau đóng/kill tiến trình đầu acquire được. `internal/agentconfig/*_test.go` (CREATE): config absent/managed/conflict/malformed; disabled target/non-target đều báo lỗi rõ, không gọi CLI và không sửa byte/config; dual active entry; target đã có; remove/add/rollback failures; xác minh giữ nguyên mọi MCP entry khác và snapshot ban đầu. CLI được inject để test không cần cài agent.
+- `internal/ui/web_test.go` / browser tests (MODIFY): POST hợp lệ/busy/invalid/config failure; xác minh callback → Snapshot → SSE/state và không trả success giả. `cmd/bridge/main_test.go` (MODIFY): `bridge mcp` lock conflict không ghi stdout, code exit khác 0.
+- `docs/codex-config.toml.example` (CREATE), `docs/CODEX_SETUP.md` (CREATE): entry MCP stdio `lanbridge`, cách dùng và hướng dẫn tương thích; không chứa đường dẫn máy thật.
+- Dependencies: TASK 2.5 thêm parser TOML nhỏ chỉ để đọc Codex config; lock dùng `x/sys` đã có. Không thêm SDK MCP hoặc config rewriter.
+- **Host constraints / - test required:** đường dẫn config Codex/Claude, cú pháp/phiên bản CLI (bao gồm `--scope user` khi remove), PATH khi khởi chạy từ `.app`, Codex reload và dừng tiến trình MCP phải được xác nhận trên Mac thật. Nếu CLI hoặc config không khả dụng, Settings báo lỗi và tài liệu cho biết thao tác thủ công; không tuyên bố provider đã chuyển.
+
+**Kiểm chứng bổ sung M2:** chọn Claude rồi Codex và ngược lại; mỗi lần chỉ có một entry `lanbridge`, MCP entry khác giữ nguyên; lỗi CLI hiện rõ và trạng thái không bị giả là thành công. Giữ một MCP process rồi thử khởi chạy/đổi provider lần hai → bị từ chối; đóng process đầu → khởi chạy lại thành công.
 
 ---
 
@@ -244,7 +261,7 @@ tắt/mở lại CAI MCP server → gọi tool lại được mà không phải 
 
 ### Task 4.3: Hoàn thiện UI
 - Host: trang chính là chat; Settings chứa trạng thái + IP:port, ghép nối, yêu cầu quyền, danh sách quyền (sửa/thu hồi), danh sách project đọc từ config (báo lỗi nếu có), danh sách app (bật/tắt Start/Stop), lệnh đang chạy và Thoát.
-- Client: trang chính là chat kèm trạng thái activity Bridge; Settings chứa trạng thái, ghép nối/nhập IP, quyền đang có, hướng dẫn đăng ký `bridge mcp`, cảnh báo và Thoát.
+- Client: trang chính là chat kèm trạng thái activity Bridge; Settings chứa trạng thái, ghép nối/nhập IP, quyền đang có, provider MCP đang chọn, trạng thái config Claude/Codex, lựa chọn provider, cảnh báo và Thoát.
 - Cả hai vai giữ trang HTML/CSS/JS nhúng, cùng bộ điều khiển hiện có. Đưa chat thành view mặc định; nhóm toàn bộ cài đặt/kết nối/thông báo trong view Settings. Badge trên Settings chỉ đếm thông báo/yêu cầu đang chờ; chi tiết và thao tác xử lý nằm bên trong Settings. Không tạo hệ thống notification mới.
 - `internal/ui/embed/index.html` (MODIFY): thêm điều hướng Chat/Settings, chuyển các khu vực không phải chat vào Settings, giữ nguyên thao tác hiện hữu; chat là nội dung chính khi mở trang. Reuse message text render `textContent`, multiline `pre-wrap`, per-message Copy.
 - `internal/ui/web.go` (MODIFY): mở rộng `UIState` với activity MCP hiện tại/gần nhất; thêm API nội bộ `POST /api/mcp/activity` và `POST /api/mcp/chat/send`, dùng token cục bộ hiện có, xác thực method/body và phát thay đổi qua SSE. Activity và chat chỉ tồn tại trong bộ nhớ phiên; route chat đặt sender kind `mac_agent` ở phía server, không tin sender do JSON body cung cấp.
@@ -253,7 +270,7 @@ tắt/mở lại CAI MCP server → gọi tool lại được mà không phải 
 - Tạo nhãn gọn theo tool: command → `<project> · Chạy lệnh`; project tool → `<project> · <tool>`; tool Bridge còn lại → tên thao tác dễ đọc. Không đưa nguyên văn command/script arguments, output, log hoặc nội dung file vào activity; không xem `bridge_status`/notification nội bộ là task agent. Dữ liệu project rỗng → nhãn thao tác chung.
 - Nhãn chỉ mô tả MCP operation mà Bridge nhận được, không phải task title tổng quát hay đầy đủ hoạt động của Claude Code. Khi idle/không có sự kiện, UI nói rõ Bridge chưa quan sát thấy thao tác nào. Không lưu lịch sử qua phiên.
 - Không thêm IPC transport mới, quyền mới, desktop notifications, generic notification queue, system tray behavior, script parser/run button hay dependency UI; badge Settings đếm permission requests đang pending hiện có; informational MCP/config warnings không tính vào badge và vẫn đọc được trong Settings.
-- Tests: nhãn cho known/project tools, thiếu metadata, success/error/idle; `run_command` với project `CAI` và command argument đặc trưng phải tạo `CAI · Chạy lệnh` và loại command argument khỏi label; project trống dùng `Chạy lệnh`; project tool giữ `<project> · <tool>`; API sai token/method/body; UI hiển thị Settings/chat và nhãn bằng `textContent`; bảo đảm không đưa args/output vào activity; MCP `chat_send` empty/oversize/disconnected/error; TypeChat route, mapped sender labels, multiline/special-character preservation, Copy exact text; confirm no automatic retry when delivery is unknown; confirm chat content is never dispatched to executor/MCPCall. Real agent deciding when to ask Windows user and native clipboard remain real-host checks.
+- Tests: nhãn cho known/project tools, thiếu metadata, success/error/idle; `run_command` với project `CAI` và command argument đặc trưng phải tạo `CAI · Chạy lệnh` và loại command argument khỏi label; project trống dùng `Chạy lệnh`; project tool giữ `<project> · <tool>`; API sai token/method/body; UI hiển thị Settings/chat và nhãn bằng `textContent`; bảo đảm không đưa args/output vào activity; MCP `chat_send` empty/oversize/disconnected/error; TypeChat route, mapped sender labels, multiline/special-character preservation, Copy exact text; confirm no automatic retry when delivery is unknown; confirm chat content is never dispatched to executor/MCPCall. Provider-management and runtime-lock coverage belongs to Task 2.5. Real agent deciding when to ask Windows user and native clipboard remain real-host checks.
 
 **Kiểm chứng M4:** Start/Stop AutoCAD được phép; app không được phép → từ chối;
 Thoát Bridge không tắt AutoCAD; chat 2 chiều gồm text agent qua cùng chat hiện có,
@@ -267,8 +284,12 @@ trạng thái kết thúc đúng và không rò nội dung call.
 ## Milestone 5: Cài đặt & nghiệm thu
 
 ### Task 5.1: Cài đặt
-- `install.sh` (Mac): chép `LAN Bridge.app` vào `~/Applications/`, chép `bridge` vào `~/.local/bin`,
-  in lệnh `claude mcp add` để đăng ký. Lần đầu mở, macOS hỏi quyền "Mạng cục bộ" → Cho phép.
+- `install.sh` (Mac): chép `LAN Bridge.app` vào `~/Applications/`, chép `bridge` vào `~/.local/bin`;
+  đăng ký và chuyển đổi MCP provider do Settings quản lý theo Task 2.5. Nếu cần cấu hình thủ công,
+  hướng dẫn riêng cho Claude Code và Codex; Codex có snippet tại `docs/codex-config.toml.example`.
+  `Makefile dist-mac` đóng gói hướng dẫn và snippet cạnh installer; installer kiểm tra cả hai file
+  và in đúng lệnh cấu hình thủ công cho app executable.
+  Lần đầu mở, macOS hỏi quyền "Mạng cục bộ" → Cho phép.
 - `install.ps1` (Windows, không cần quyền admin):
   - chép `bridge.exe` vào `%LOCALAPPDATA%\LanBridge\`, tạo shortcut Desktop + Start Menu,
     tạo `config.json` mẫu nếu chưa có;
@@ -293,6 +314,7 @@ trạng thái kết thúc đúng và không rò nội dung call.
 - `internal/ui` — tray (icon màu theo trạng thái) + HTTP/SSE localhost, dùng cho cả host và client.
 - `internal/mcp` — kiểu JSON-RPC/MCP dùng chung; `internal/agentmcp` — `bridge mcp` (M2);
   `internal/mcpfwd` — phiên MCP tới server dự án trên host (M3).
+- `internal/agentconfig` — chỉ đọc status trong config Claude/Codex và dùng native CLI để quản lý riêng entry user-scope `lanbridge`; `internal/agentmcp` sở hữu khóa runtime độc quyền xuyên process.
 - Log: `log/slog` ra 1 file trong thư mục state, xóa trắng mỗi lần khởi động.
 
 ## Cố ý không làm
@@ -302,5 +324,4 @@ thư viện mDNS thứ hai; xoay vòng log.
 
 ---
 
-Critic CR: PASS (rev 7, independent PRE_CODE_TECHNICAL review; Plan/Milestones alignment and explicit command-label regression oracle confirmed)
-(rev 3, 2026-11-02 — docs/reports/2026-11-02-critic-cr-technical-proposal.md)
+Critic CR: PASS (rev 8, independent PRE_CODE_TECHNICAL follow-up; Claude user scope, provider reconciliation including disabled Codex entries, rollback, Settings caller chain, and subprocess lock verification covered).

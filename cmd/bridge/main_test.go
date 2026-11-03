@@ -1,17 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentlock"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/fileops"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/permissions"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
@@ -35,6 +39,28 @@ func TestDefaultCommandLaunchesClientFromMacApp(t *testing.T) {
 	}
 	if got := defaultCommand("windows"); got != "" {
 		t.Fatalf("default command on Windows = %q, want no default", got)
+	}
+}
+
+func TestRunMCPWithBusyLockDoesNotWriteProtocolOutput(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runMCPWithLock(
+		nil,
+		func() (*agentlock.Lock, error) {
+			return nil, agentlock.ErrBusy
+		},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if !errors.Is(err, agentlock.ErrBusy) {
+		t.Fatalf("runMCPWithLock error = %v, want ErrBusy", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("busy MCP process wrote to stdout: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "already running") {
+		t.Fatalf("busy MCP error was not reported on stderr: %q", stderr.String())
 	}
 }
 

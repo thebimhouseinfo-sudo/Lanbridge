@@ -51,7 +51,7 @@ type Tool struct {
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
-// StdioServer handles the stdio MCP protocol for Claude Code
+// StdioServer handles the stdio MCP protocol for the selected Mac agent.
 type StdioServer struct {
 	inReader       *bufio.Reader
 	outWriter      io.Writer

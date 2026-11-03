@@ -1,0 +1,38 @@
+name: Windows and macOS checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build Windows GUI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: go build -ldflags="-s -w -H windowsgui" -o bridge.exe ./cmd/bridge
+      - name: Build macOS app
+        if: runner.os == 'macOS'
+        run: make dist-mac
+      - name: Check macOS installer syntax
+        if: runner.os == 'macOS'
+        run: sh -n scripts/install.sh

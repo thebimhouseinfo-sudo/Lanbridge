@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentlock"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/appcontrol"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/store"
@@ -40,7 +42,15 @@ type UIState struct {
 	ChatMessages       []ChatMessage           `json:"chat_messages,omitempty"`
 	Activity           *BridgeActivity         `json:"activity,omitempty"`
 	MCPRegistration    string                  `json:"mcp_registration,omitempty"`
+	MCPProvider        string                  `json:"mcp_provider,omitempty"`
+	MCPProviders       []MCPProviderState      `json:"mcp_providers,omitempty"`
 	MCPWarnings        []string                `json:"mcp_warnings,omitempty"`
+}
+
+type MCPProviderState struct {
+	Provider string `json:"provider"`
+	Status   string `json:"status"`
+	Message  string `json:"message,omitempty"`
 }
 
 type ProjectInfo struct {
@@ -94,6 +104,7 @@ type WebServer struct {
 	onAppControl        func(id, action string) (string, error)
 	onChatSend          func(text string) error
 	onAgentChatSend     func(text string) error
+	onMCPProviderChange func(context.Context, string) ([]MCPProviderState, error)
 	// M3: MCP tool forwarding (set by bridge client)
 	onMCPForward       func(toolName string, args map[string]any) (any, error)
 	onProjectToolsList func() ([]map[string]any, error)
@@ -169,6 +180,10 @@ func (ws *WebServer) SetAgentChatHandler(onSend func(text string) error) {
 	ws.onAgentChatSend = onSend
 }
 
+func (ws *WebServer) SetMCPProviderHandler(onChange func(context.Context, string) ([]MCPProviderState, error)) {
+	ws.onMCPProviderChange = onChange
+}
+
 func (ws *WebServer) AddChatMessage(message ChatMessage) {
 	ws.UpdateState(func(state *UIState) {
 		state.ChatMessages = append(state.ChatMessages, message)
@@ -217,6 +232,7 @@ func (ws *WebServer) Start() {
 	mux.HandleFunc("/api/chat/send", ws.handleChatSend)
 	mux.HandleFunc("/api/mcp/chat/send", ws.handleMCPChatSend)
 	mux.HandleFunc("/api/mcp/activity", ws.handleMCPActivity)
+	mux.HandleFunc("/api/mcp/provider", ws.handleMCPProvider)
 	// Local MCP forwarding endpoints (used by bridge mcp on the same Mac)
 	mux.HandleFunc("/api/mcp/forward", ws.handleMCPForward)
 	mux.HandleFunc("/api/mcp/project-tools", ws.handleProjectTools)
@@ -720,6 +736,59 @@ func (ws *WebServer) handleMCPActivity(w http.ResponseWriter, r *http.Request) {
 		state.Activity = &activity
 	})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (ws *WebServer) handleMCPProvider(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) || r.Method != http.MethodPost {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if ws.onMCPProviderChange == nil {
+		http.Error(w, "MCP provider management is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+	var body struct {
+		Provider string `json:"provider"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Provider != "claude" && body.Provider != "codex" {
+		http.Error(w, "provider must be claude or codex", http.StatusBadRequest)
+		return
+	}
+
+	providers, err := ws.onMCPProviderChange(r.Context(), body.Provider)
+	ws.UpdateState(func(state *UIState) {
+		state.MCPProviders = providers
+		state.MCPProvider = selectedMCPProvider(providers)
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, agentlock.ErrBusy) {
+			status = http.StatusConflict
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func selectedMCPProvider(providers []MCPProviderState) string {
+	var selected string
+	for _, provider := range providers {
+		if provider.Status != "managed-active" {
+			continue
+		}
+		if selected != "" {
+			return ""
+		}
+		selected = provider.Provider
+	}
+	return selected
 }
 
 // Close stops the HTTP server

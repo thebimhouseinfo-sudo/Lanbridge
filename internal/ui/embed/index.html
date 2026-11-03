@@ -63,6 +63,7 @@
     .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
     .btn-secondary { background: transparent; border-color: var(--border); color: var(--text-main); }
     .btn-secondary:hover:not(:disabled) { background: #2a2b2f; }
+    .btn-secondary[aria-pressed="true"] { border-color: var(--blue); color: var(--blue); }
     .btn-danger { background: #991b1b; color: white; }
     .btn-danger:hover:not(:disabled) { background: #7f1d1d; }
     .section { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
@@ -206,8 +207,14 @@
     </section>
 
     <section id="mcpInstructions" class="section" style="display: none;">
-      <h2>Đăng ký MCP với Claude Code</h2>
+      <h2>Agent MCP</h2>
       <p id="mcpRegistration" class="hint"></p>
+      <div class="btn-group">
+        <button id="btnClaudeMCP" class="btn-secondary" type="button" onclick="selectMCPProvider('claude')">Claude Code</button>
+        <button id="btnCodexMCP" class="btn-secondary" type="button" onclick="selectMCPProvider('codex')">Codex</button>
+      </div>
+      <div id="mcpProviderStates"></div>
+      <p id="mcpProviderActionStatus" class="hint" role="status"></p>
       <p id="mcpWarnings" class="error-message"></p>
     </section>
       </div>
@@ -228,6 +235,9 @@
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('t') || '';
+    let mcpProviderSelection = '';
+    let mcpProviderStates = [];
+    let mcpProviderChangePending = false;
 
     function showView(name) {
       const chatActive = name === 'chat';
@@ -320,6 +330,9 @@
       document.getElementById('configError').textContent = s.config_error || '';
       document.getElementById('mcpRegistration').textContent = s.mcp_registration || '';
       document.getElementById('mcpWarnings').textContent = (s.mcp_warnings || []).join('\n');
+      mcpProviderSelection = s.mcp_provider || '';
+      mcpProviderStates = s.mcp_providers || [];
+      renderMCPProviderControls();
       const pendingCount = (s.pending_permissions || []).length;
       const pendingBadge = document.getElementById('pendingBadge');
       pendingBadge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
@@ -377,6 +390,48 @@
         body: JSON.stringify(body)
       });
       if (!response.ok) throw new Error(await response.text());
+    }
+
+    function renderMCPProviderControls() {
+      document.getElementById('btnClaudeMCP').setAttribute('aria-pressed', String(mcpProviderSelection === 'claude'));
+      document.getElementById('btnCodexMCP').setAttribute('aria-pressed', String(mcpProviderSelection === 'codex'));
+      document.getElementById('btnClaudeMCP').disabled = mcpProviderChangePending;
+      document.getElementById('btnCodexMCP').disabled = mcpProviderChangePending;
+
+      const labels = {
+        absent: 'Chưa đăng ký',
+        'managed-active': 'Đã đăng ký',
+        'managed-disabled': 'Đang tắt',
+        conflict: 'Xung đột cấu hình',
+        invalid: 'Lỗi cấu hình'
+      };
+      const container = document.getElementById('mcpProviderStates');
+      container.replaceChildren();
+      mcpProviderStates.forEach(provider => {
+        const row = document.createElement('p');
+        row.className = 'hint';
+        const name = provider.provider === 'claude' ? 'Claude Code' : 'Codex';
+        row.textContent = name + ': ' + (labels[provider.status] || provider.status);
+        if (provider.message) row.textContent += ' — ' + provider.message;
+        container.appendChild(row);
+      });
+    }
+
+    async function selectMCPProvider(provider) {
+      if (mcpProviderChangePending) return;
+      mcpProviderChangePending = true;
+      const status = document.getElementById('mcpProviderActionStatus');
+      status.textContent = 'Đang cập nhật cấu hình agent…';
+      renderMCPProviderControls();
+      try {
+        await postJSON('/api/mcp/provider', { provider });
+        status.textContent = 'Đã cập nhật cấu hình ' + (provider === 'claude' ? 'Claude Code' : 'Codex') + '.';
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        mcpProviderChangePending = false;
+        renderMCPProviderControls();
+      }
     }
 
     async function connectToHost(event) {

@@ -3,13 +3,17 @@ package ui
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/agentlock"
 )
 
 func TestWebServerTokenAndEmbed(t *testing.T) {
@@ -53,6 +57,9 @@ func TestWebServerTokenAndEmbed(t *testing.T) {
 		`.pending-badge[hidden] { display: none; }`,
 		`id="activityBanner"`,
 		`id="chatMessages"`,
+		`id="btnClaudeMCP"`,
+		`id="btnCodexMCP"`,
+		`id="mcpProviderStates"`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Errorf("Embedded UI is missing %q", expected)
@@ -60,6 +67,9 @@ func TestWebServerTokenAndEmbed(t *testing.T) {
 	}
 	if strings.Contains(html, `class="view-tabs"`) {
 		t.Error("Embedded UI should use the header Settings toggle instead of a separate tab bar")
+	}
+	if !strings.Contains(html, `onclick="selectMCPProvider('codex')"`) {
+		t.Error("Embedded UI is missing the Codex provider action")
 	}
 	settingsStart := strings.Index(html, `id="settingsView"`)
 	statusBadge := strings.Index(html, `id="statusBadge"`)
@@ -136,6 +146,104 @@ func TestWebServerMCPToolsChangedEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Fatalf("MCP tools changed notification not received: %q", event.String())
+}
+
+func TestMCPProviderEndpointUpdatesStateAndReportsErrors(t *testing.T) {
+	ws, err := NewWebServer("Client (macOS)", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	var callbackCalls int
+	ws.SetMCPProviderHandler(func(_ context.Context, provider string) ([]MCPProviderState, error) {
+		callbackCalls++
+		if provider != "codex" {
+			return nil, fmt.Errorf("provider callback received %q, want codex", provider)
+		}
+		if callbackCalls == 1 {
+			return []MCPProviderState{
+				{Provider: "claude", Status: "managed-active"},
+				{Provider: "codex", Status: "absent"},
+			}, agentlock.ErrBusy
+		}
+		if callbackCalls == 2 {
+			return []MCPProviderState{
+				{Provider: "claude", Status: "absent"},
+				{Provider: "codex", Status: "managed-active"},
+			}, nil
+		}
+		return []MCPProviderState{
+			{Provider: "claude", Status: "absent"},
+			{Provider: "codex", Status: "conflict", Message: "config conflict"},
+		}, errors.New("config conflict")
+	})
+	ws.Start()
+	readState := func() UIState {
+		ws.stateMu.RLock()
+		defer ws.stateMu.RUnlock()
+		return ws.state
+	}
+
+	post := func(body string, authorized bool) *http.Response {
+		t.Helper()
+		url := fmt.Sprintf("http://127.0.0.1:%d/api/mcp/provider", ws.port)
+		if authorized {
+			url += "?t=" + ws.token
+		}
+		request, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+
+	response := post(`{"provider":"codex"}`, false)
+	response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("unauthorized provider change returned %d, want 403", response.StatusCode)
+	}
+	response = post(`{"provider":"unknown"}`, true)
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid provider returned %d, want 400", response.StatusCode)
+	}
+	if callbackCalls != 0 {
+		t.Fatalf("invalid requests invoked callback %d times, want 0", callbackCalls)
+	}
+
+	response = post(`{"provider":"codex"}`, true)
+	response.Body.Close()
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("busy provider change returned %d, want 409", response.StatusCode)
+	}
+	state := readState()
+	if state.MCPProvider != "claude" || len(state.MCPProviders) != 2 {
+		t.Fatalf("busy response did not publish actual provider state: %#v", state)
+	}
+
+	response = post(`{"provider":"codex"}`, true)
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("successful provider change returned %d, want 204", response.StatusCode)
+	}
+	state = readState()
+	if state.MCPProvider != "codex" || state.MCPProviders[1].Status != "managed-active" {
+		t.Fatalf("successful provider change did not publish new state: %#v", state)
+	}
+
+	response = post(`{"provider":"codex"}`, true)
+	response.Body.Close()
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("config error returned %d, want 500", response.StatusCode)
+	}
+	state = readState()
+	if state.MCPProvider != "" || state.MCPProviders[1].Status != "conflict" {
+		t.Fatalf("failed provider change did not publish actual config state: %#v", state)
+	}
 }
 
 func TestPermissionManagementEndpoints(t *testing.T) {

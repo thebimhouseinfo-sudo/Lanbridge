@@ -5,7 +5,7 @@
 Một binary Go, 3 lệnh con:
 - `bridge host` — Windows. Gate quyền, file, lệnh build, MCP dự án, Start/Stop app.
 - `bridge client` — macOS. Giữ kết nối tới host, pairing, chat.
-- `bridge mcp` — macOS, do Mac agent khởi chạy (stdio). Nối vào `bridge client` qua localhost.
+- `bridge mcp` — macOS, do đúng một trong Claude Code hoặc Codex khởi chạy (stdio). Nối vào `bridge client` qua localhost; OS lock chặn phiên MCP thứ hai.
 
 Mac ↔ Windows: JSON messages trên mTLS TCP (pin fingerprint), Wi-Fi LAN, cổng mặc định 54823.
 Windows chỉ cần `bridge.exe`; mọi build làm trên Mac.
@@ -23,6 +23,8 @@ internal/
   commands/          — 8 lệnh cố định theo project, Job Object, job/timeout
   mcp/               — kiểu JSON-RPC/MCP dùng chung
   agentmcp/          — `bridge mcp`: MCP server stdio cho Mac agent
+  agentconfig/       — đọc và quản lý riêng entry user-scope của Claude Code/Codex
+  agentlock/         — khóa liên-process dùng chung cho MCP runtime và đổi provider
   mcpfwd/            — phiên MCP tới server dự án trên host (tự mở lại khi lỗi)
   apps/              — Start / WM_CLOSE
   chat/              — relay text trong phiên

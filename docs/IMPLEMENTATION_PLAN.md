@@ -106,6 +106,12 @@ Observable: installer → icon → click mở app.
 ### GOAL-12: Giao diện cho Mac agent
 > CRITERIA: §5, §6, §7, §8, §9, §10
 
-`bridge mcp` — MCP server stdio mà Mac agent đăng ký một lần; cung cấp tool xin quyền,
-read, sync, chạy lệnh, Start/Stop, và tools chuyển tiếp từ MCP server của dự án. Dùng chat Bridge hai chiều đã có để gửi text/script cho user; đây là wiring của chat hiện hữu, không phải một loại chat mới.
-Observable: Claude Code trên Mac gọi được các tool này qua Bridge.
+`bridge mcp` — MCP server stdio mà Claude Code hoặc Codex trên Mac đăng ký; Settings
+chọn và tự quản lý đăng ký user-scope của đúng một agent, đọc cả cấu hình Claude Code
+và Codex, đồng thời bảo toàn các MCP server khác. Khóa runtime liên-process bảo đảm
+chỉ một `bridge mcp` hoạt động; đổi agent khi khóa đang được giữ phải báo lỗi rõ.
+Cung cấp tool xin quyền, read, sync, chạy lệnh, Start/Stop, tools chuyển tiếp từ MCP
+server dự án và chat text hiện có; không tạo chat subsystem mới.
+Observable: Claude Code hoặc Codex được chọn gọi được các tool qua Bridge; chỉ một
+agent được đăng ký/đang kết nối; cấu hình MCP không liên quan không đổi; instance MCP
+thứ hai bị từ chối rõ ràng.
