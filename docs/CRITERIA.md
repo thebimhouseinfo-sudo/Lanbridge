@@ -44,6 +44,10 @@ Không chạy ngầm qua đêm, không CI/CD tự động.
 - Lần đầu: Windows hiện mã ghép nối tạm → nhập trên Mac → ghi nhận
   thiết bị tin cậy. Mã ngắn không dùng làm bí mật dài hạn.
 - Các lần sau: tự động kết nối lại khi cả 2 app mở.
+  Auto-reconnect chỉ khôi phục kết nối transport, **không tự mở
+  Config Profile**. Chỉ được dùng các chức năng project khi Windows user
+  đã mở thủ công Permission Config và Mac đã mở đúng Command Blacklist
+  Config của **cùng project**.
 - Kết nối mã hóa bằng thư viện crypto chuẩn. Không tự chế crypto.
 - Lưu trạng thái ghép nối/quyền giữa các phiên; cho phép Unpair/Revoke.
 
@@ -162,10 +166,14 @@ pasted logs, Copy. Không chat AI, không auto-execute.
 14. Windows Edit/Revoke Grant có hiệu lực với phiên đang hoạt động.
 15. Read/Sync đã Grant hoạt động cả ngoài `projects`/`related_dirs`,
     không phải khai báo project hay sửa JSON trước.
-16. Save/Save As/Rename/Delete/Load Config Profile có tên trong App Data;
-    đóng/mở Bridge không làm mất profile.
-17. User chọn Load Profile bằng UI hoặc yêu cầu agent `config.load`;
-    nạp profile không tự Sync/Build/Exec/Start/Stop.
+16. Save/Save As/Rename/Delete/Load Config Profile có tên trong App Data
+    **cục bộ từng máy**; đóng/mở Bridge không làm mất profile.
+17. ~~User chọn Load Profile bằng UI hoặc yêu cầu agent `config.load`;~~
+    Windows user phải **tự Open** Permission Config đã lưu trên Windows UI.
+    Mac user có thể Open blacklist bằng Mac UI, hoặc Mac agent **tự Open
+    config dự án đã tồn tại** bằng read-only `config.load`; thao tác Open
+    không được create, edit, overwrite hoặc save file.
+    Nạp profile không tự Sync/Build/Exec/Start/Stop.
 18. Windows Add Application bằng UI, cho phép sửa quyền Start/Stop;
     Mac được dùng Shell/Exec để đóng/mở AutoCAD khi rebuild DLL.
 19. Agent được test liên tục trên Active Drawing, New Drawing hoặc Saved
@@ -177,8 +185,9 @@ pasted logs, Copy. Không chat AI, không auto-execute.
     không chặn các COM/MCP CAD khác.
 21. Bridge không implement blacklist CAD bằng cách phân tích mọi Shell Command;
     CAI/RAI vẫn sở hữu nghiệp vụ test/drawing.
-22. Mỗi dự án có đúng hai file config riêng trong App Data: Permission
-    Config (folders/programs/grants) và Command Blacklist Config.
+22. Mỗi dự án có đúng hai file config riêng: **Windows App Data**
+    lưu Permission Config (folders/programs/grants), **Mac App Data**
+    lưu Command Blacklist Config. Không Sync/copy config qua Bridge.
 23. Windows user Edit/Revoke Permission Config dù blacklist Locked;
     các nút Grant/Edit/Revoke Folder/Program nằm ở Windows UI.
 24. Agent đọc repo, theo yêu cầu user được thêm/bớt/sửa blacklist
@@ -192,8 +201,19 @@ pasted logs, Copy. Không chat AI, không auto-execute.
     để vòng qua trạng thái Locked của blacklist.
 28. Windows UI không quản lý Command Blacklist; Mac UI hiển thị
     danh sách blacklist theo project và nút Lock/Unlock thủ công.
-29. Từ Mac UI agent chỉ sửa blacklist khi Unlocked và user yêu cầu;
+29. Từ Mac UI agent chỉ sửa blacklist khi Unlocked và user yêu cầu
+    **qua thao tác Edit Blacklist riêng**, không thông qua Config Open;
     không cho Mac UI cấp/sửa/thu hồi Windows Folder/Program Grants.
+30. Sau khi kết nối, Windows user phải tự Open Permission Config đã lưu;
+    Mac agent được tự Open **chỉ file blacklist hiện có**, không tạo mới
+    hoặc chỉnh sửa file trong lúc Open.
+31. Không có chức năng Sync/copy Config Profile giữa Mac và Windows,
+    kể cả khi hai bên có quyền File Sync thông thường.
+32. Chỉ khi cả hai bên đã Open config **cùng project ID** thì các lệnh
+    Read/Sync/Exec/App/MCP theo project mới được dùng; lệch project hoặc
+    thiếu config → hiển thị mismatch/not ready, không thực hiện lệnh.
+33. Đóng/mở lại Bridge giữ các file config, nhưng không tự mở chúng:
+    Windows mở manual; Mac agent có thể tự load đúng file hiện có.
 
 ## 12. Explicit NON-goals
 
@@ -235,31 +255,48 @@ trước khi chọn thư viện.
 
 - Bridge phải có **Config Profiles có tên do user đặt** để phát triển
   nhiều app, ví dụ CAI, RAI, AssetGen hoặc TestBridge.
-- **Save, Save As, List, Load/Open, Rename, Delete, Current**; có thể chọn
-  khôi phục profile dùng gần nhất khi khởi động.
-- Profile lưu lâu dài trong **App Data của chính Bridge** trên máy liên quan,
+- **Save, Save As, List, Load/Open, Rename, Delete, Current**;
+  ~~có thể chọn khôi phục profile dùng gần nhất khi khởi động.~~
+  Khi kết nối, không auto-activate config cũ: Windows user phải tự Open
+  profile đã lưu, Mac user hoặc agent có thể Open profile Mac có sẵn.
+  Các thao tác Save/Save As/Rename/Delete là quản lý config bằng UI,
+  không phải quyền của agent khi gọi Open.
+- Profile lưu lâu dài trong **App Data của chính Bridge** trên từng máy,
   không nằm bắt buộc trong repo và không cần chỉnh JSON thủ công.
+  **Không Sync config giữa hai máy**; mỗi máy chỉ lưu file config mà
+  mình quản lý (Windows Permission, Mac Blacklist).
 - UI trên Windows/Mac phải cho phép chọn lại profile phù hợp. **Windows UI**
   quản lý file Permission Config (Folder/Program Grant/Edit/Revoke);
   **Mac UI** quản lý file Command Blacklist (xem/sửa khi Unlocked,
-  Lock/Unlock thủ công). Agent trên Mac
-  có thể nhận lệnh từ user để load profile đã lưu, ví dụ
+  Lock/Unlock thủ công).
+  ~~Agent trên Mac có thể nhận lệnh từ user để load profile đã lưu, ví dụ
   `config.list()`, `config.current()`, `config.save(name)`,
-  `config.load(name_or_id)`, `config.delete(name_or_id)`.
-  Đây là API logic đề xuất, không khóa chặt tên wire protocol.
+  `config.load(name_or_id)`, `config.delete(name_or_id)`.~~
+  **Windows user tự Open Permission Config bằng UI. Mac agent được
+  tự nhận diện dự án rồi Open/Load một Command Blacklist Config đã lưu
+  cục bộ trên Mac mà không cần user thao tác thêm.**
+  Agent-side Config Open chỉ dùng read-only `config.list()`,
+  `config.current()`, `config.load(name_or_id)` (API logic đề xuất).
+  Không tạo, ghi đè, rename, save, delete hay chỉnh config trong
+  thao tác Open. Việc chỉnh Blacklist theo yêu cầu user khi đã Unlock
+  là **workflow Edit riêng** của §19, không bị cấm bởi quy tắc read-only
+  dành riêng cho Open. Đây không khóa tên wire protocol.
 - ~~Profile chứa các thiết lập Connection, Folder Grants, Workspace/Project,
   Exec/Build, Software Control và thông tin MCP khi áp dụng.~~
-  Mỗi dự án có **đúng hai file config** riêng trong App Data của Bridge:
-  (1) **Permission Config**, chứa folders, programs, Actual Granted
-  Permissions và tham chiếu thực thi/MCP nếu cần, do **Windows UI** quản lý;
-  (2) **Command Blacklist Config**, chứa danh sách lệnh/API bị cấm riêng
-  cho dự án, do **Mac UI** quản lý. Connection/pairing chung có thể ở
+  ~~Mỗi dự án có **đúng hai file config** riêng trong App Data của Bridge:~~
+  Mỗi dự án có **đúng hai file config, phân tán ở hai máy**:
+  (1) **Permission Config** nằm trong **Windows App Data**, chứa folders,
+  programs, Actual Granted Permissions và tham chiếu thực thi/MCP nếu cần,
+  do **Windows UI** quản lý;
+  (2) **Command Blacklist Config** nằm trong **Mac App Data**, chứa danh
+  sách lệnh/API bị cấm riêng cho dự án, do **Mac UI** quản lý.
+  Không đồng bộ hai file cho nhau. Connection/pairing chung có thể ở
   Bridge global settings, không thêm config thứ ba cho riêng dự án.
-  Quy tắc chỉnh sửa/Lock xem §19.
+  Quy tắc chỉnh sửa/Lock xem §19 và kích hoạt profile xem §20.
 - **Windows là chủ thể quyết định Grant**: Mac không thể sửa file profile
   phía Mac để tạo/nâng quyền trên Windows. Load profile Windows đã lưu
   có thể khôi phục Grant do user đã cấp, không phải xin duyệt lại chỉ
-  vì chọn lại profile.
+  vì chọn lại profile; **chính Windows user phải thực hiện Open thủ công**.
 - Load Config chỉ phục hồi cấu hình; không tự Build, Sync, chạy Shell,
   Start/Stop App hay bắt đầu test.
 - Profile persistence khác runtime session: chỉ kết nối/thực thi khi cả
@@ -326,8 +363,12 @@ AutoCAD command/COM. Các mục sau là blacklist CAI đã được yêu cầu:
 ## 18. End-to-end Development / Testing
 
 1. Mac và Windows chạy Bridge; pair/reconnect theo §4.
-2. User Windows cấp Grant hoặc load lại Named Config Profile đã lưu.
-3. Mac agent có thể request thêm quyền; Windows được cấp khác với request.
+2. Windows user cấp Grant hoặc **tự Open** Permission Config đã lưu bằng
+   Windows UI. Mac agent có thể tự Open/Load **Command Blacklist Config
+   đã tồn tại trên Mac** theo project, read-only và không tạo/chỉnh file.
+3. Hai bên phải Open config có project ID khớp nhau; nếu chưa khớp
+   thì chưa thực hiện project operations. Mac agent có thể request thêm
+   quyền; Windows được cấp khác với request.
 4. Mac theo Actual Grant: Read logs/source → Exec build/script → Sync small
    source/DLL → Shell Stop/Start ứng dụng → gọi CAI/RAI MCP để test.
 5. Khi test AutoCAD chỉ dùng Active Drawing / New Drawing / OS-shell direct
@@ -342,15 +383,21 @@ desktop, OS sandbox hay control-plane phức tạp ngoài mục tiêu Bridge.
 
 ## 19. Exactly Two Per-Project Config Files and Manual Blacklist Lock
 
-Mỗi dự án (CAI, RAI, AssetGen, ...) thuộc một Named Config Profile và có
-**đúng hai file config riêng** trong App Data của Bridge. Tên file dưới
-đây chỉ là ví dụ; không cố định schema hoặc filename trong Criteria:
+Mỗi dự án (CAI, RAI, AssetGen, ...) thuộc một Named Config Profile.
+~~**đúng hai file config riêng** trong App Data của Bridge.~~
+**Có đúng hai file config của dự án trên hai máy khác nhau**. Mỗi file
+lưu trong **App Data cục bộ của máy sở hữu**, không tự sync hay copy:
 
 ```text
-App Data/TestBridge/profiles/<project-id>/
-  permissions.json        # Windows-owned folders/apps/capability grants
-  command-blacklist.json  # Project commands/APIs to avoid
+Windows App Data/TestBridge/profiles/<project-id>/
+  permissions.json          # Chỉ Windows giữ và user mở bằng Windows UI
+
+Mac App Data/TestBridge/profiles/<project-id>/
+  command-blacklist.json    # Chỉ Mac giữ, agent có thể Open read-only
 ```
+
+Tên file và bố cục là ví dụ, không cố định schema. Hai file có nội dung
+khác nhau và không cần giống nhau về bytes; **phải cùng Project ID**.
 
 **File 1 — Permission Config (do Windows user quản lý):**
 
@@ -390,11 +437,13 @@ App Data/TestBridge/profiles/<project-id>/
 
 **Profile và Dispatch:**
 
-- Save/Load profile sử dụng đúng cặp file của dự án; không đưa blacklist
-  của CAI sang RAI, không overwrite file blacklist đang Locked.
+- ~~Save/Load profile sử dụng đúng cặp file của dự án;~~
+  Mỗi máy Open **file config cục bộ** tương ứng cùng Project ID;
+  không sync/copy config giữa hai máy. Không đưa blacklist CAI sang RAI,
+  không overwrite blacklist đang Locked.
   **Windows UI chỉ quản lý Permissions; Mac UI chỉ quản lý Blacklist.**
-  Vị trí UI không tự thay đổi quy tắc lưu file trong Bridge App Data.
-  Trạng thái Locked được đồng bộ để cấm chỉnh blacklist ở mọi đường ghi.
+  Không đồng bộ Lock state giữa hai máy: Lock là trạng thái cục bộ của
+  blacklist trên Mac, được giữ lại qua restart.
 - Bridge nạp blacklist của dự án; dispatcher đủ thông tin để nhận
   diện command/API có trách nhiệm kiểm tra nó. Với AutoCAD in-app
   OPEN và COM Open trong MCP payload, CAI/MCP dispatcher kiểm tra.
@@ -402,6 +451,39 @@ App Data/TestBridge/profiles/<project-id>/
 - Connection/pairing global settings của Bridge có thể lưu riêng;
   yêu cầu **hai file** áp dụng cho config **mỗi dự án**, không cấm
   Bridge có các file dữ liệu toàn cục phục vụ hoạt động.
+
+## 20. Local Config Open and Project Match Before Use
+
+- **Hai config được lưu độc lập**: Windows App Data giữ Permission Config,
+  Mac App Data giữ Command Blacklist Config. Bridge **không Sync, replicate,
+  import từ máy kia hoặc tự tạo file đối ứng**, kể cả khi File Sync đang Grant.
+- Sau khi kết nối/pairing xong, **Windows user phải tự chọn Open
+  Permission Config đã lưu trên Windows UI**. Không tự Open profile lần
+  trước, không để agent thao tác Open trên Windows thay user.
+- Trên Mac, user có thể tự Open hoặc **agent có thể tự xác định project và
+  Open một Command Blacklist Config đã lưu sẵn** trên Mac. Thao tác
+  Open/Load của agent chỉ **read-only, existing-file-only**: không
+  create, edit, append, rename, delete, overwrite, save hoặc Sync config.
+  Không thấy config thì báo rõ `CONFIG_NOT_FOUND` và chờ user tạo/lưu
+  bằng UI ở máy tương ứng; agent không tự tạo placeholder.
+- Quy tắc agent không sửa config **trong thao tác Open** khác với workflow
+  **Edit Command Blacklist** ở §19: Agent chỉ được Edit khi người dùng yêu
+  cầu riêng và đã Unlock thủ công trên Mac UI. Việc Auto-Open không cần
+  Unlock và không được tự Unlock.
+- Hai máy trao đổi **metadata lựa chọn project** qua kết nối, tối thiểu
+  Project ID ổn định, **không trao đổi nội dung config**. Không so sánh
+  file bytes/hash vì Permission Config và Blacklist có chức năng khác nhau.
+- Chỉ khi **Windows đã manual Open Permission Config + Mac đã Open
+  Command Blacklist Config + Project ID hai bên khớp**, phiên mới ở
+  trạng thái `PROJECT_READY`. Không khớp hoặc một bên chưa Open thì
+  hiển thị trạng thái `CONFIG_MISMATCH` / `CONFIG_NOT_OPEN` và
+  không chạy Read/Sync/Exec/App/MCP cho project; không phải approval
+  hoặc security gate bổ sung, chỉ tránh vận hành nhầm cấu hình dự án.
+- Auto-reconnect chỉ khôi phục network connection; project phải trải qua
+  quy trình Open config trên hai máy cho phiên mới. Config vẫn lưu qua
+  restart. Load không tự kích hoạt Sync/Build/Test/Start/Stop.
+- Windows tiếp tục Grant/Edit/Revoke folder/program qua Windows UI theo
+  §14; Mac tiếp tục quản lý blacklist/Lock/Unlock theo §19.
 
 ## Technical Advisor decision checkpoint
 
@@ -428,5 +510,12 @@ tiêu chí nhẹ + tin cậy. Phạm vi cá nhân → gate đơn giản là đ�
 - v1.2a HUMAN CLARIFICATION: 2026-11-03 — Windows UI độc quyền
   Grant/Edit/Revoke Folder và Program. **Mac UI** sở hữu Command
   Blacklist và nút Lock/Unlock thủ công; agent chỉ chỉnh blacklist
-  theo yêu cầu user khi đã Unlocked. Chỉ thay UI authority, không
-  tự đặt thêm gate hay thay nơi lưu dữ liệu chỉ vì đổi UI.
+  theo yêu cầu user khi đã Unlocked. ~~Chỉ thay UI authority, không
+  tự đặt thêm gate hay thay nơi lưu dữ liệu chỉ vì đổi UI.~~
+- v1.2b HUMAN CLARIFICATION: 2026-11-03 — Hai config dự án là file
+  **cục bộ riêng** (Windows Permission, Mac Blacklist), không sync.
+  Windows user **manual Open** file đã lưu; Mac agent **auto Open
+  existing blacklist read-only** theo dự án (không create/edit/save).
+  Project operations chỉ chạy khi hai máy đã Open cùng Project ID.
+  Agent Edit Blacklist khi user yêu cầu và Mac manual Unlock là luồng
+  riêng, không đồng nhất với Open.
