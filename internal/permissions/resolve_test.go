@@ -36,8 +36,38 @@ func TestResolveValidPath(t *testing.T) {
 		t.Fatalf("Expected Resolve to succeed, got: %v", err)
 	}
 
-	if resolved != testFile {
-		t.Errorf("Expected %s, got %s", testFile, resolved)
+	expected, err := filepath.EvalSymlinks(testFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != expected {
+		t.Errorf("Expected %s, got %s", expected, resolved)
+	}
+}
+
+func TestGatekeeperAccessThroughDirectoryAlias(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.Mkdir(real, 0755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	state, err := store.NewStateStoreAt(filepath.Join(root, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, err := NewGatekeeper(state, &store.HostConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.AddGrant(alias, []string{CapRead}); err != nil {
+		t.Fatal(err)
+	}
+	if !gate.CheckAccess(filepath.Join(alias, "new.log"), CapRead) {
+		t.Fatal("approved directory alias did not authorize its missing child")
 	}
 }
 

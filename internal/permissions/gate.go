@@ -238,6 +238,10 @@ func (g *Gatekeeper) ResolveAccess(candidatePath string, capability string) (str
 	if err != nil {
 		return "", fmt.Errorf("resolve candidate path: %w", err)
 	}
+	candidate, err = resolveExistingAncestor(candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve candidate path: %w", err)
+	}
 	for _, grant := range g.grants {
 		if !hasCapability(grant.Capabilities, capability) {
 			continue
