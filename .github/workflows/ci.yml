@@ -83,9 +83,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          if gh release view test-2026-11-03 >/dev/null 2>&1; then
+          if gh release view test-2026-11-03-v2 >/dev/null 2>&1; then
             echo 'Test release already exists; leaving it unchanged.'
             exit 0
           fi
           (cd windows && zip -q ../testbridge-windows-amd64.zip bridge.exe install.ps1)
-          gh release create test-2026-11-03 testbridge-windows-amd64.zip macos/testbridge-macos-arm64.zip --target "$GITHUB_SHA" --prerelease --title "Test build 2026-11-03" --notes "Test build; two-machine acceptance is pending."
+          gh release create test-2026-11-03-v2 testbridge-windows-amd64.zip macos/testbridge-macos-arm64.zip --target "$GITHUB_SHA" --prerelease --title "Test build 2026-11-03" --notes "Test build; two-machine acceptance is pending."
