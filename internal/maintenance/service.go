@@ -92,6 +92,10 @@ func (s *Service) Status(peerFP string)Status{
  if !good{return Status{Available:s.state.SourceRoot!=""}}
  return Status{Available:true,Enabled:true,SourceRoot:s.state.SourceRoot}
 }
+// IsPrivateSourcePath lets the Mac reject protected names before opening
+// local source bytes; Windows enforces the same rule again after resolution.
+func IsPrivateSourcePath(rel string)bool{return protected(rel)}
+
 func protected(rel string) bool {
  if rel=="" {return false}
  // Both slash styles are treated as separators even on non-Windows tests.
