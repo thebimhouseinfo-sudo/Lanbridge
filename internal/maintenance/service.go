@@ -99,13 +99,17 @@ func IsPrivateSourcePath(rel string)bool{return protected(rel)}
 func protected(rel string) bool {
  if rel=="" {return false}
  // Both slash styles are treated as separators even on non-Windows tests.
- for _,p:=range strings.FieldsFunc(strings.ToLower(rel),func(r rune)bool{return r=='/'||r=='\\'}) {
+ parts:=strings.FieldsFunc(strings.ToLower(rel),func(r rune)bool{return r=='/'||r=='\\'})
+ for i,p:=range parts {
   if p==""||p=="."{continue}
   if p==".."||p==".git"||p=="node_modules"||p=="dist"||p==".env"||strings.HasPrefix(p,".env.")||strings.HasPrefix(p,".env-") {return true}
   switch p {
-  case "config.json","state.json","permissions.json","command-blacklist.json","blacklist-locks.json","maintenance.json","credentials.json","secrets.json","id_rsa","id_ed25519","bridge.exe","bridge","lan bridge.app":
+  case "config.json","state.json","permissions.json","command-blacklist.json","blacklist-locks.json","maintenance.json","credentials.json","secrets.json","id_rsa","id_ed25519","bridge.exe","lan bridge.app":
    return true
   }
+  // "bridge" is a legitimate source directory (cmd/bridge), but not
+  // a syncable executable leaf.
+  if p=="bridge" && i==len(parts)-1{return true}
   if strings.HasSuffix(p,".pem")||strings.HasSuffix(p,".p12")||strings.HasSuffix(p,".pfx")||strings.HasSuffix(p,".key")||strings.HasSuffix(p,".dll")||strings.HasSuffix(p,".exe")||strings.Contains(p,"token.")||strings.Contains(p,"secret."){return true}
  }
  return false
