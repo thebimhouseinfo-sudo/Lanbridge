@@ -87,6 +87,10 @@ jobs:
           test_tag="test-${GITHUB_SHA:0:12}"
           (cd windows && zip -q ../testbridge-windows-amd64.zip bridge.exe install.ps1)
           sha256sum testbridge-windows-amd64.zip macos/testbridge-macos-arm64.zip > SHA256SUMS.txt
+          if gh release view "$test_tag" >/dev/null 2>&1; then
+            echo "Test package for this exact source SHA is already published: $test_tag"
+            exit 0
+          fi
           gh release create "$test_tag" testbridge-windows-amd64.zip macos/testbridge-macos-arm64.zip SHA256SUMS.txt \
             --target "$GITHUB_SHA" --prerelease \
             --title "TestBridge local test build ${GITHUB_SHA:0:12}" \
