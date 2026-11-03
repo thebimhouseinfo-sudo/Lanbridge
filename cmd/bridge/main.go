@@ -281,7 +281,7 @@ func runHost(args []string) {
 	// Mac can see the project ID metadata but never receives the file.
 	webUI.SetProjectHandlers(
 		func() ([]string,error) {return hostProfiles.ListIDs(false)},
-		func(id string) error {
+		func(id,workspace,mcpCommand string) error {
 			if err:=projectconfig.ValidateID(id);err!=nil{return err}
 			folders:=make([]projectconfig.FolderGrant,0)
 			for _,g:=range gate.ListGrants() {
@@ -295,9 +295,26 @@ func runHost(args []string) {
 					Name:app.Name,Executable:app.Path,
 				})
 			}
+			// Legacy config values are migration defaults only; brand-new
+			// Windows repositories can be selected directly in this UI.
+			var namedCommands map[string][]string
+			var mcp *projectconfig.MCPConfig
+			if old:=findProject(cfg,id);old!=nil {
+				if workspace==""{workspace=old.Root}
+				namedCommands=old.Commands
+				if old.MCP!=nil {
+					mcp=&projectconfig.MCPConfig{Transport:old.MCP.Transport,
+						Command:append([]string(nil),old.MCP.Command...),URL:old.MCP.URL}
+				}
+			}
+			if workspace==""{return errors.New("Windows workspace directory required")}
+			if mcpCommand!=""{mcp=&projectconfig.MCPConfig{
+				Transport:"stdio",Command:[]string{mcpCommand},
+			}}
 			_,err:=hostProfiles.InitializeWindows(id,projectconfig.WindowsPermissions{
 				SchemaVersion:projectconfig.SchemaVersion,ProjectID:id,
-				DisplayName:id,Folders:folders,Programs:apps,
+				DisplayName:id,Workspace:workspace,Folders:folders,Programs:apps,
+				NamedCommands:namedCommands,MCP:mcp,
 			})
 			if err!=nil{return err}
 			ids,_:=hostProfiles.ListIDs(false)
@@ -1445,7 +1462,7 @@ func runClient(args []string) {
 	}
 	webUI.SetProjectHandlers(
 		func() ([]string,error){return macProfiles.ListIDs(true)},
-		func(id string) error {
+		func(id,_,_ string) error {
 			// Mac UI First-time Setup only, NOT agent config.load.
 			_,err:=macProfiles.InitializeMacEmpty(id)
 			if err!=nil{return err}
