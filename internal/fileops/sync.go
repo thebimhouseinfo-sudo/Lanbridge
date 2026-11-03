@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/permissions"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/store"
 )
 
 // SyncItem represents a file to be synced
@@ -55,6 +57,11 @@ func SyncFiles(gate *permissions.Gatekeeper, targetBaseDir string, files []SyncI
 		resolvedPath, err = gate.ResolveAccess(resolvedPath, permissions.CapSync)
 		if err != nil {
 			return nil, fmt.Errorf("%w for file %s", err, file.RelPath)
+		}
+		configDir,err:=store.GetConfigDir()
+		if err!=nil{return nil,err}
+		if projectconfig.IsBridgePrivatePath(resolvedPath,configDir) {
+			return nil,fmt.Errorf("ERR_CONFIG_PROTECTED: cannot sync Bridge config file %s",file.RelPath)
 		}
 
 		parentDir := filepath.Dir(resolvedPath)
