@@ -362,7 +362,8 @@
         badge.style.background = 'rgba(52, 199, 89, 0.2)';
         badge.style.color = 'var(--green)';
         dot.style.background = 'var(--green)';
-        text.textContent = s.running_command ? 'Đang chạy build/test' : 'Đã kết nối, sẵn sàng';
+        text.textContent = s.running_command ? 'Đang chạy build/test'
+          : (s.project_ready ? 'PROJECT_READY — sẵn sàng làm việc' : 'Đã kết nối — cần mở Config dự án');
       } else if (s.waiting_pair) {
         badge.style.background = 'rgba(255, 159, 10, 0.2)';
         badge.style.color = 'var(--orange)';
@@ -806,7 +807,7 @@
           button.className = action === 'stop' ? 'btn-danger' : 'btn-primary';
           button.type = 'button';
           button.textContent = action === 'start' ? 'Start' : 'Stop';
-          button.disabled = action === 'start' ? !app.can_start : !app.can_stop;
+          button.disabled = !currentProfileState.project_ready || (action === 'start' ? !app.can_start : !app.can_stop);
           button.onclick = async () => {
             button.disabled = true;
             try {
@@ -818,6 +819,7 @@
               const result = await response.json();
               status.textContent = result.message || 'Đã gửi yêu cầu.';
             } catch(e) {status.textContent = 'Không điều khiển được ứng dụng: ' + e.message;}
+            finally {button.disabled = !currentProfileState.project_ready || (action === 'start' ? !app.can_start : !app.can_stop);}
           };
           actions.appendChild(button);
         });
