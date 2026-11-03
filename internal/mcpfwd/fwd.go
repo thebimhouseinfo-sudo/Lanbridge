@@ -1,9 +1,8 @@
 // Package mcpfwd maintains persistent MCP sessions to project-local MCP servers
 // and forwards tools/list + tools/call on behalf of the Mac agent.
 //
-// Only "stdio" transport is implemented — this is the only transport currently
-// needed per CRITERIA §8 and the proposal note in Task 3.2.
-// HTTP/Streamable-HTTP transport will be added when a repo requires it.
+// Stdio and Streamable HTTP share the same per-project lifecycle and tool list
+// notification boundary; opaque HTTP endpoints never leave Windows.
 package mcpfwd
 
 import (
@@ -22,8 +21,12 @@ import (
 // MCPTool describes a tool exposed by a project's MCP server.
 type MCPTool struct {
 	Name        string         `json:"name"`
+	Title       string         `json:"title,omitempty"`
 	Description string         `json:"description,omitempty"`
 	InputSchema map[string]any `json:"inputSchema,omitempty"`
+	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	Annotations map[string]any `json:"annotations,omitempty"`
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // Session is a live connection to one project's MCP stdio server.
@@ -33,6 +36,10 @@ type Session struct {
 	mu          sync.Mutex
 	cmd         *exec.Cmd
 	stream      *mcpStream
+	http        *HTTPMCP
+	transport string
+	endpoint string
+	refreshMu sync.Mutex
 	nextID      atomic.Int64
 	closed      bool
 }
@@ -75,7 +82,9 @@ func (s *Session) Close() {
 	s.closed = true
 	cmd := s.cmd
 	stream := s.stream
+	h:=s.http
 	s.mu.Unlock()
+	if h!=nil{h.close()}
 
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
@@ -89,10 +98,11 @@ func (s *Session) isClosed() bool {
 	s.mu.Lock()
 	closed := s.closed
 	stream := s.stream
+	h:=s.http
 	s.mu.Unlock()
-	if closed || stream == nil {
-		return true
-	}
+	if closed{return true}
+	if h!=nil{return h.isClosed()}
+	if stream==nil{return true}
 	select {
 	case <-stream.done:
 		return true
@@ -109,7 +119,9 @@ func (s *Session) roundTrip(id int64, req map[string]any) (json.RawMessage, erro
 		return nil, fmt.Errorf("session đã đóng")
 	}
 	stream := s.stream
+	h:=s.http
 	s.mu.Unlock()
+	if h!=nil{return h.request(req,id)}
 	if stream == nil {
 		return nil, fmt.Errorf("session MCP không có transport đang hoạt động")
 	}
@@ -158,40 +170,61 @@ func NewManager(onChange func()) *Manager {
 	}
 }
 
-// Session returns the live session for the given project, (re)opening if needed.
-func (m *Manager) Session(projName, projectRoot, transport string, argv []string) (*Session, error) {
-	m.mu.Lock()
-	if s, ok := m.sessions[projName]; ok {
-		if !s.isClosed() {
-			m.mu.Unlock()
-			return s, nil
-		}
-	}
+// Session retains legacy stdio callers and is not a URL transport bypass.
+func (m *Manager) Session(projName,projectRoot,transport string,argv []string)(*Session,error){
+ return m.SessionWithEndpoint(projName,projectRoot,transport,argv,"","")
+}
 
-	s, err := openSession(projName, projectRoot, transport, argv)
-	if err != nil {
-		m.mu.Unlock()
-		return nil, err
-	}
-	m.sessions[projName] = s
-	m.mu.Unlock()
-
-	// Watch for the session dying so we can trigger list_changed.
-	go func() {
-		<-s.stream.done
-		m.mu.Lock()
-		changed := m.sessions[projName] == s
-		if changed {
-			delete(m.sessions, projName)
-		}
-		m.mu.Unlock()
-		if changed {
-			m.onChange()
-		}
-	}()
-
-	m.onChange()
-	return s, nil
+// SessionWithEndpoint opens stdio or Streamable HTTP on Windows. The caller
+// resolves the endpoint/auth only from the local OS-protected secret store.
+func (m *Manager) SessionWithEndpoint(projName,projectRoot,transport string,argv []string,endpoint,authorization string)(*Session,error){
+ m.mu.Lock()
+ if old:=m.sessions[projName];old!=nil{
+  if !old.isClosed() && old.transport==transport && old.endpoint==endpoint {
+   m.mu.Unlock();return old,nil
+  }
+  delete(m.sessions,projName)
+  old.Close()
+ }
+ var s *Session
+ var err error
+ switch transport{
+ case "stdio":
+  s,err=openSession(projName,projectRoot,transport,argv)
+ case "streamable_http":
+  s,err=openHTTPSession(projName,endpoint,authorization)
+ default:
+  err=fmt.Errorf("ERR_MCP_TRANSPORT_UNSUPPORTED")
+ }
+ if err!=nil{m.mu.Unlock();return nil,err}
+ m.sessions[projName]=s
+ m.mu.Unlock()
+ // A server notification invalidates tool discovery. A stale/closed
+ // session cannot refresh a newer session for the same project.
+ changed:=func(){
+  go func(){
+   s.refreshMu.Lock();defer s.refreshMu.Unlock()
+   if s.isClosed(){return}
+   if err:=s.refreshTools();err!=nil{return}
+   m.mu.Lock();current:=m.sessions[projName]==s;m.mu.Unlock()
+   if current&&!s.isClosed(){m.onChange()}
+  }()
+ }
+ if s.stream!=nil{s.stream.setChangeHandler(changed)}
+ if s.http!=nil{
+  s.http.mu.Lock();s.http.onToolsChanged=changed;s.http.mu.Unlock()
+ }
+ var done <-chan struct{}
+ if s.http!=nil{done=s.http.done}else{done=s.stream.done}
+ go func(){
+  <-done
+  m.mu.Lock();current:=m.sessions[projName]==s
+  if current{delete(m.sessions,projName)}
+  m.mu.Unlock()
+  if current{m.onChange()}
+ }()
+ m.onChange()
+ return s,nil
 }
 
 // CloseProject closes the session for the named project, if any.
@@ -229,6 +262,10 @@ func (m *Manager) AllTools() ([]MCPTool, []string) {
 				Name:        qualName,
 				Description: fmt.Sprintf("[%s] %s", projName, t.Description),
 				InputSchema: t.InputSchema,
+				Title:t.Title,
+				OutputSchema:t.OutputSchema,
+				Annotations:t.Annotations,
+				Meta:t.Meta,
 			})
 		}
 	}
@@ -300,6 +337,7 @@ func openSession(projName, projectRoot, transport string, argv []string) (*Sessi
 		ProjectName: projName,
 		cmd:         cmd,
 		stream:      stream,
+		transport:transport,
 	}
 
 	// Run MCP initialize handshake.
@@ -343,8 +381,14 @@ func (s *Session) initialize() error {
 	if err != nil {
 		return err
 	}
-	if _, err := responseResult(raw); err != nil {
-		return fmt.Errorf("initialize response: %w", err)
+	initResult, err := responseResult(raw)
+	if err!=nil{return fmt.Errorf("initialize response: %w",err)}
+	if s.http!=nil{
+		var response struct{ProtocolVersion string `json:"protocolVersion"`}
+		if json.Unmarshal(initResult,&response)!=nil||response.ProtocolVersion=="" {
+			return fmt.Errorf("MCP_HTTP_NEGOTIATION_INVALID")
+		}
+		s.http.mu.Lock();s.http.version=response.ProtocolVersion;s.http.mu.Unlock()
 	}
 	// Send initialized notification (no response expected).
 	notif := map[string]any{
@@ -352,41 +396,37 @@ func (s *Session) initialize() error {
 		"method":  "notifications/initialized",
 	}
 	data, _ := json.Marshal(notif)
+	if s.http!=nil{_,err:=s.http.request(notif,0);return err}
 	return s.stream.writeLine(data)
 }
 
 func (s *Session) refreshTools() error {
-	id := s.nextID.Add(1)
-	req := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"method":  "tools/list",
-	}
-	raw, err := s.roundTrip(id, req)
-	if err != nil {
-		return err
-	}
-
-	resultJSON, err := responseResult(raw)
-	if err != nil {
-		return err
-	}
-	var result struct {
-		Tools []MCPTool `json:"tools"`
-	}
-	if err := json.Unmarshal(resultJSON, &result); err != nil {
-		return fmt.Errorf("decode tools/list result: %w", err)
-	}
-	for _, tool := range result.Tools {
-		if tool.Name == "" {
-			return fmt.Errorf("tools/list returned a tool without a name")
-		}
-	}
-
-	s.mu.Lock()
-	s.tools = result.Tools
-	s.mu.Unlock()
-	return nil
+ var all []MCPTool
+ cursor:=""
+ seen:=map[string]bool{}
+ for page:=0;page<32;page++{
+  id:=s.nextID.Add(1)
+  req:=map[string]any{"jsonrpc":"2.0","id":id,"method":"tools/list"}
+  if cursor!=""{req["params"]=map[string]any{"cursor":cursor}}
+  raw,err:=s.roundTrip(id,req)
+  if err!=nil{return err}
+  resultJSON,err:=responseResult(raw)
+  if err!=nil{return err}
+  var result struct{Tools []MCPTool `json:"tools"`;NextCursor string `json:"nextCursor"`}
+  if err:=json.Unmarshal(resultJSON,&result);err!=nil{return fmt.Errorf("decode tools/list result: %w",err)}
+  for _,tool:=range result.Tools{
+   if tool.Name==""{return fmt.Errorf("tools/list returned unnamed tool")}
+   all=append(all,tool)
+  }
+  if result.NextCursor==""{
+   s.mu.Lock();s.tools=all;s.mu.Unlock()
+   return nil
+  }
+  if seen[result.NextCursor]{return fmt.Errorf("MCP tools/list cursor loop")}
+  seen[result.NextCursor]=true
+  cursor=result.NextCursor
+ }
+ return fmt.Errorf("MCP tools/list pagination exceeds 32 pages")
 }
 
 func responseResult(raw json.RawMessage) (json.RawMessage, error) {
@@ -422,6 +462,8 @@ type mcpStream struct {
 	closeOnce sync.Once
 	errMu     sync.Mutex
 	err       error
+	changeMu sync.RWMutex
+	onChange func()
 }
 
 func newMCPStream(w io.WriteCloser, r io.Reader) *mcpStream {
@@ -477,6 +519,10 @@ func (s *mcpStream) Err() error {
 	return s.err
 }
 
+func (s *mcpStream) setChangeHandler(handler func()){
+ s.changeMu.Lock();s.onChange=handler;s.changeMu.Unlock()
+}
+
 func (s *mcpStream) readLoop(r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -489,6 +535,7 @@ func (s *mcpStream) readLoop(r io.Reader) {
 		// Extract the "id" field to route to the right waiter.
 		var envelope struct {
 			ID *int64 `json:"id"`
+			Method string `json:"method"`
 		}
 		if err := json.Unmarshal(line, &envelope); err != nil {
 			s.setError(fmt.Errorf("invalid JSON-RPC response: %w", err))
@@ -496,6 +543,10 @@ func (s *mcpStream) readLoop(r io.Reader) {
 			return
 		}
 		if envelope.ID == nil {
+			if envelope.Method=="notifications/tools/list_changed"{
+				s.changeMu.RLock();notify:=s.onChange;s.changeMu.RUnlock()
+				if notify!=nil{notify()}
+			}
 			continue
 		}
 
@@ -512,7 +563,7 @@ func (s *mcpStream) readLoop(r io.Reader) {
 			default:
 			}
 		}
-		// Ignore notifications (no id) — we don't need tools/list_changed from project servers.
+		// Notifications are dispatched without blocking the response reader.
 	}
 	if err := scanner.Err(); err != nil {
 		s.setError(fmt.Errorf("read MCP server output: %w", err))
