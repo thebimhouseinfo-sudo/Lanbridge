@@ -668,7 +668,8 @@ func isProjectToolName(name string) bool {
 		name != "__list_tools" && name != "__tools_changed"
 }
 
-func (s *StdioServer) handleLocalSyncCall(reqID any, args map[string]any, maintenanceSync bool) {
+func (s *StdioServer) handleLocalSyncCall(reqID any, args map[string]any, isMaintenance ...bool) {
+	maintenanceSync:=len(isMaintenance)>0 && isMaintenance[0]
 	localRoot := ""
 	if rawRoot, exists := args["local_root"]; exists {
 		var ok bool
