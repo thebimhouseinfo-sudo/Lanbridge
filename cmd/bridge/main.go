@@ -351,6 +351,14 @@ func runHost(args []string) {
 				})
 			}
 			if err:=gate.ReplaceGrants(grants);err!=nil{return err}
+			approvedApps:=make([]store.AppConfig,0,len(p.Programs))
+			appRights:=make([]appcontrol.ActionPermissions,0,len(p.Programs))
+			for _,a:=range p.Programs {
+				approvedApps=append(approvedApps,store.AppConfig{Name:a.Name,Path:a.Executable})
+				appRights=append(appRights,appcontrol.ActionPermissions{Start:a.Start,Stop:a.Stop})
+			}
+			if err:=appManager.ReplaceApps(approvedApps,appRights);err!=nil{return err}
+			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
 			activeProjectMu.Lock();activeProject=current;activeProjectMu.Unlock()
 			if err:=hostSession.SetWindowsLoaded(id);err!=nil{return err}
 			status:=hostSession.Snapshot()
@@ -378,7 +386,7 @@ func runHost(args []string) {
 		for _,app:=range appManager.List(){
 			p.Programs=append(p.Programs,projectconfig.ProgramGrant{
 				Name:app.Name,Executable:app.Path,
-				Start:app.CanStartStop,Stop:app.CanStartStop,
+				Start:app.CanStart,Stop:app.CanStop,
 			})
 		}
 		return hostProfiles.SaveWindows(id,p)
