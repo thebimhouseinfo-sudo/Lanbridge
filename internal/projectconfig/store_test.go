@@ -15,6 +15,8 @@ func TestFirstTimeEmptyAndExistingNeverOverwritten(t *testing.T) {
  got,err:=s.LoadMac("windows-app")
  if err!=nil||got.Entries==nil||len(got.Entries)!=0 {t.Fatalf("empty load: %#v %v",got,err)}
  original:=[]Rule{{Kind:"tool",Tool:"windows-app__tool"}}
+ if err:=s.UpdateMac("windows-app",original);!errors.Is(err,ErrLocked){t.Fatalf("new project must start Locked: %v",err)}
+ if err:=s.SetLocked("windows-app",false);err!=nil{t.Fatal(err)}
  if err:=s.UpdateMac("windows-app",original);err!=nil {t.Fatal(err)}
  path,_:=s.FilePath("windows-app",true)
  b1,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
@@ -72,6 +74,7 @@ func TestWindowsPermissionsIndependentAndProjectIDValidation(t *testing.T) {
 func TestUnsupportedRuleShapeNeverSaved(t *testing.T) {
  s,_:=New(t.TempDir())
  if _,err:=s.InitializeMacEmpty("sample");err!=nil{t.Fatal(err)}
+ if err:=s.SetLocked("sample",false);err!=nil{t.Fatal(err)}
  if err:=s.UpdateMac("sample",[]Rule{{Kind:"argument",Tool:"x"}});!errors.Is(err,ErrInvalid){t.Fatalf("missing arg path %v",err)}
  got,err:=s.LoadMac("sample");if err!=nil||len(got.Entries)!=0{t.Fatal("invalid rule persisted")}
 }
