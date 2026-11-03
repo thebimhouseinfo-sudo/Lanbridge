@@ -32,6 +32,11 @@ mkdir -p "$HOME/Applications" "$HOME/.local/bin"
 ditto "$APP_SOURCE" "$APP_DEST"
 install -m 755 "$BIN_SOURCE" "$BIN_DEST"
 
+DESKTOP_SHORTCUT="$HOME/Desktop/LAN Bridge.app"
+if [ -d "$HOME/Desktop" ] && [ ! -e "$DESKTOP_SHORTCUT" ] && [ ! -L "$DESKTOP_SHORTCUT" ]; then
+    ln -s "$APP_DEST" "$DESKTOP_SHORTCUT"
+fi
+
 echo "Installed LAN Bridge.app at: $APP_DEST"
 echo "Installed bridge MCP command at: $BIN_DEST"
 echo "Open Bridge Settings to select Claude Code or Codex for MCP registration."

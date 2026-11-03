@@ -13,11 +13,17 @@ try {
     if (-not (Test-Path -LiteralPath $packageExe -PathType Leaf)) {
         throw "bridge.exe was not found in package directory: $PackageDirectory"
     }
+    $packageIcon = Join-Path $PackageDirectory "lanbridge.ico"
+    if (-not (Test-Path -LiteralPath $packageIcon -PathType Leaf)) {
+        throw "lanbridge.ico was not found in package directory: $PackageDirectory"
+    }
 
     New-Item -ItemType Directory -Force -Path $InstallDirectory | Out-Null
     New-Item -ItemType Directory -Force -Path $ConfigDirectory | Out-Null
     $installedExe = Join-Path $InstallDirectory "bridge.exe"
     Copy-Item -LiteralPath $packageExe -Destination $installedExe -Force
+    $installedIcon = Join-Path $InstallDirectory "lanbridge.ico"
+    Copy-Item -LiteralPath $packageIcon -Destination $installedIcon -Force
 
     $configPath = Join-Path $ConfigDirectory "config.json"
     if (-not (Test-Path -LiteralPath $configPath)) {
@@ -52,7 +58,7 @@ try {
         $shortcut.TargetPath = $installedExe
         $shortcut.Arguments = "host"
         $shortcut.WorkingDirectory = $InstallDirectory
-        $shortcut.IconLocation = "$installedExe,0"
+        $shortcut.IconLocation = "$installedIcon,0"
         $shortcut.Save()
     }
 
