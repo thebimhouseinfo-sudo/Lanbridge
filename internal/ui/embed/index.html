@@ -207,6 +207,21 @@
       </div>
     </section>
 
+    <section class="section" id="maintenanceSection">
+      <h2>Windows — LAN Bridge Source Maintenance</h2>
+      <p class="hint">Quyền Read + Sync chỉ vào source Bridge đã xác định, độc lập Project Config. Chỉ máy đã pair được truy cập; không tự cấp Exec. Có thể Revoke bất cứ lúc nào.</p>
+      <div class="address-form">
+        <input id="maintenanceRoot" type="text" placeholder="Windows LAN Bridge source folder" aria-label="Bridge source folder">
+        <button type="button" class="btn-secondary" onclick="pickWindowsPath('folder','maintenanceRoot')">Browse…</button>
+      </div>
+      <div class="btn-group" style="margin-top:8px">
+        <button type="button" class="btn-primary" onclick="setMaintenance('select')">Grant Source Read+Sync</button>
+        <button type="button" class="btn-secondary" onclick="setMaintenance('enable')">Enable</button>
+        <button type="button" class="btn-danger" onclick="setMaintenance('revoke')">Revoke</button>
+      </div>
+      <p id="maintenanceStatus" class="form-status" role="status">Source not configured</p>
+    </section>
+
     <section class="section" id="projectProfilesSection">
       <h2 id="profileHeading">Project Config</h2>
       <p class="hint" id="projectProfileHint"></p>
@@ -422,6 +437,7 @@
         activityBanner.dataset.status = activity ? (activity.status || '') : 'idle';
       }
       renderProjectProfiles(s, isClient);
+      renderMaintenance(s, isClient);
       renderProjects(s.projects || []);
       renderApps(s.apps || []);
       renderChatMessages(s.chat_messages || []);
@@ -464,6 +480,31 @@
     }
 
     let currentProfileState = {};
+    function renderMaintenance(s, isClient) {
+      const section = document.getElementById('maintenanceSection');
+      section.style.display = isClient ? 'none' : 'block';
+      if (isClient) return;
+      const input = document.getElementById('maintenanceRoot');
+      if (document.activeElement !== input && s.maintenance_source) input.value = s.maintenance_source;
+      document.getElementById('maintenanceStatus').textContent = s.maintenance_enabled
+        ? 'Read + Sync ENABLED for paired Mac · ' + (s.maintenance_source || '')
+        : (s.maintenance_available ? 'REVOKED / DISABLED · Select Enable to regrant existing source' : 'Source chưa được xác định. Chọn thư mục source LAN Bridge trên Windows.');
+    }
+    async function setMaintenance(action) {
+      const source_root = document.getElementById('maintenanceRoot').value.trim();
+      if (action === 'select' && !source_root) { alert('Chọn đúng thư mục source trước.'); return; }
+      try {
+        const response = await fetch('/api/maintenance/config?t=' + encodeURIComponent(token), {
+          method: 'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action,source_root})
+        });
+        if (!response.ok) throw new Error((await response.text()).trim());
+        document.getElementById('maintenanceStatus').textContent = 'Windows đã cập nhật quyền Source Maintenance.';
+      } catch(e) {
+        document.getElementById('maintenanceStatus').textContent = 'Không cập nhật: ' + e.message;
+      }
+    }
+
     function renderProjectProfiles(s, isClient) {
       currentProfileState = s;
       document.getElementById('profileHeading').textContent = isClient
