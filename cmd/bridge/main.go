@@ -1139,7 +1139,7 @@ func runHost(args []string) {
 	webUI.Start()
 
 	fmt.Printf("[LAN Bridge Host] Listening on port %d\n", listenPort)
-	fmt.Printf("[LAN Bridge Host] Web UI: %s\n", webUI.URL())
+	fmt.Printf("[LAN Bridge Host] Local UI is ready on port %d; open it from the Bridge tray (token omitted)\n", webUI.Port())
 
 	if !*headless {
 		// Run tray main loop (blocks until Exit)
@@ -2359,7 +2359,7 @@ func runClient(args []string) {
 		slog.Error("Failed to publish local MCP endpoint; bridge mcp will not be able to connect", "error", err)
 	}
 	webUI.Start()
-	fmt.Printf("[LAN Bridge Client] Web UI: %s\n", webUI.URL())
+	fmt.Printf("[LAN Bridge Client] Local UI is ready on port %d; open it from the Bridge menu (token omitted)\n", webUI.Port())
 
 	if target != "" {
 		connectTarget(target)
