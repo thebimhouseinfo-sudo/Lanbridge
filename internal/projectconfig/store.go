@@ -191,7 +191,9 @@ func (s *Store) IsLocked(id string) (bool,error) {
  s.mu.Lock();defer s.mu.Unlock()
  if err:=ValidateID(id);err!=nil{return false,err}
  locks,err:=s.readLocks();if err!=nil{return false,err}
- return locks[id],nil
+ locked,exists:=locks[id]
+ if !exists {return true,nil} // Default is Locked until Mac human manually unlocks.
+ return locked,nil
 }
 // SetLocked is ONLY wired to a direct human Mac UI action. Never export
 // this method as an agent/MCP tool.
@@ -213,7 +215,8 @@ func (s *Store) UpdateMac(id string, entries []Rule) error {
  if err=loadJSON(path,&existing);err!=nil{return err}
  if err=validateMac(id,&existing);err!=nil{return err}
  locks,err:=s.readLocks();if err!=nil{return err}
- if locks[id]{return ErrLocked}
+ locked,exists:=locks[id]
+ if !exists || locked {return ErrLocked}
  if entries==nil {entries=[]Rule{}}
  update:=MacBlacklist{SchemaVersion:SchemaVersion,ProjectID:id,Entries:entries}
  if err=validateMac(id,&update);err!=nil{return err}
