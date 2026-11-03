@@ -192,6 +192,36 @@
       <div id="permissionGrants"><p class="empty-state">Chưa cấp quyền nào.</p></div>
     </section>
 
+    <section class="section" id="projectProfilesSection">
+      <h2 id="profileHeading">Project Config</h2>
+      <p class="hint" id="projectProfileHint"></p>
+      <p class="hint" id="projectReadyStatus" role="status">CONFIG_NOT_OPEN</p>
+      <div class="address-form">
+        <select id="projectProfileSelect" aria-label="Cấu hình dự án đã lưu" style="min-width: 150px; flex: 1">
+          <option value="">Chọn config đã lưu</option>
+        </select>
+        <button class="btn-primary" type="button" onclick="openProjectProfile()">Open đã lưu</button>
+      </div>
+      <div class="address-form" style="margin-top: 10px;">
+        <input id="projectProfileID" type="text" placeholder="Project ID" aria-label="Project ID cho setup lần đầu">
+        <button class="btn-secondary" type="button" onclick="setupProjectProfile()">First-time Setup</button>
+      </div>
+      <p id="projectProfileAction" class="form-status" role="status"></p>
+      <div id="macBlacklistSection" style="display:none; margin-top:12px">
+        <h3>Command Blacklist (chỉ lưu trên Mac)</h3>
+        <p class="hint" id="blacklistStatus">Đang chờ load config.</p>
+        <div class="btn-group">
+          <button type="button" id="blacklistLockButton" class="btn-secondary" onclick="toggleBlacklistLock()">Lock</button>
+        </div>
+        <label for="blacklistEditor" class="hint">Entries JSON (mảng rules, ban đầu []):</label>
+        <textarea id="blacklistEditor" rows="5" style="width:100%; font-family:monospace" spellcheck="false" placeholder="[]"></textarea>
+        <div class="btn-group">
+          <button type="button" id="blacklistSaveButton" class="btn-primary" onclick="saveBlacklistEntries()">Save Blacklist</button>
+        </div>
+        <p class="hint">Agent chỉ được sửa theo yêu cầu user khi bạn Unlock trên Mac. Open config không chỉnh sửa file.</p>
+      </div>
+    </section>
+
     <section id="configErrorSection" class="section" style="display: none;">
       <h2>Lỗi cấu hình</h2>
       <p id="configError" class="error-message"></p>
@@ -353,6 +383,7 @@
         })[activity && activity.status] || (activity ? activity.status : 'Chưa có hoạt động');
         activityBanner.dataset.status = activity ? (activity.status || '') : 'idle';
       }
+      renderProjectProfiles(s, isClient);
       renderProjects(s.projects || []);
       renderApps(s.apps || []);
       renderChatMessages(s.chat_messages || []);
@@ -392,6 +423,81 @@
         body: JSON.stringify(body)
       });
       if (!response.ok) throw new Error(await response.text());
+    }
+
+    let currentProfileState = {};
+    function renderProjectProfiles(s, isClient) {
+      currentProfileState = s;
+      document.getElementById('profileHeading').textContent = isClient
+        ? 'Mac — Command Blacklist Config'
+        : 'Windows — Folder / Program Permission Config';
+      document.getElementById('projectProfileHint').textContent = isClient
+        ? 'Agent được Open config đã có, chỉ đọc. First-time Setup tạo blacklist rỗng; config không sync sang Windows.'
+        : 'Windows user tự Open Permission Config đã lưu. Grant/Edit/Revoke thư mục và chương trình chỉ thực hiện tại đây.';
+      const select = document.getElementById('projectProfileSelect');
+      const previous = select.value;
+      select.replaceChildren(new Option('Chọn config đã lưu', ''));
+      (s.project_configs || []).forEach(id => select.add(new Option(id, id)));
+      if ((s.project_configs || []).includes(previous)) select.value = previous;
+      else if (s.project_id) select.value = s.project_id;
+      document.getElementById('projectReadyStatus').textContent = s.project_ready
+        ? 'PROJECT_READY — ' + (s.project_id || '')
+        : (s.project_error || 'CONFIG_NOT_OPEN — hai máy cần mở đúng Project ID');
+      document.getElementById('macBlacklistSection').style.display = isClient ? 'block' : 'none';
+      if (!isClient) return;
+      const locked = Boolean(s.blacklist_locked);
+      const loaded = Boolean(s.project_id);
+      const entries = s.blacklist_entries || [];
+      document.getElementById('blacklistStatus').textContent = loaded
+        ? (locked ? 'Locked' : 'Unlocked') + ' · ' + entries.length + ' rule(s)'
+        : 'Chưa load blacklist. Thiếu hoặc chưa mở file → không được làm việc.';
+      document.getElementById('blacklistLockButton').textContent = locked ? 'Unlock (manual)' : 'Lock (manual)';
+      document.getElementById('blacklistLockButton').disabled = !loaded;
+      document.getElementById('blacklistSaveButton').disabled = !loaded || locked;
+      const editor = document.getElementById('blacklistEditor');
+      editor.disabled = !loaded || locked;
+      if (document.activeElement !== editor) editor.value = JSON.stringify(entries, null, 2);
+    }
+
+    async function projectAction(action, extra = {}) {
+      const response = await fetch('/api/project/action?t=' + encodeURIComponent(token), {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({action, ...extra})
+      });
+      if (!response.ok) throw new Error((await response.text()).trim());
+      return response.json();
+    }
+    async function setupProjectProfile() {
+      const project_id = document.getElementById('projectProfileID').value.trim();
+      if (!project_id) {alert('Nhập Project ID trước khi setup.'); return;}
+      try {
+        await projectAction('setup', {project_id});
+        document.getElementById('projectProfileAction').textContent = 'Đã lưu config cục bộ. Hãy Open đúng project trên cả hai máy.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+    async function openProjectProfile() {
+      const project_id = document.getElementById('projectProfileSelect').value;
+      if (!project_id) {alert('Chọn config đã lưu.'); return;}
+      try {
+        await projectAction('open', {project_id});
+        document.getElementById('projectProfileAction').textContent = 'Đã Open: ' + project_id;
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+    async function toggleBlacklistLock() {
+      try {
+        await projectAction(currentProfileState.blacklist_locked ? 'unlock' : 'lock');
+        document.getElementById('projectProfileAction').textContent = 'Trạng thái Lock/Unlock đã thay đổi trên Mac.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+    async function saveBlacklistEntries() {
+      let entries;
+      try {entries = JSON.parse(document.getElementById('blacklistEditor').value);}
+      catch(e) {alert('JSON không hợp lệ: ' + e.message);return;}
+      if (!Array.isArray(entries)) {alert('Entries phải là một mảng JSON.');return;}
+      try {
+        await projectAction('edit',{entries});
+        document.getElementById('projectProfileAction').textContent = 'Blacklist đã được cập nhật.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
     }
 
     function renderMCPProviderControls() {
