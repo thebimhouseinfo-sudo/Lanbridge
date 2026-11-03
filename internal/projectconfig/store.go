@@ -242,3 +242,39 @@ func (s *Store) ListIDs(mac bool) ([]string,error) {
  }
  return ids,nil
 }
+
+func validateMCP(m MCPConfig) error {
+ switch m.Transport {
+ case "stdio":
+  if len(m.Command)==0||m.Command[0]==""{return fmt.Errorf("%w: stdio MCP command required",ErrInvalid)}
+  for _,v:=range m.Command{if v==""{return fmt.Errorf("%w: empty argv element",ErrInvalid)}}
+ case "streamable_http":
+  if len(m.Command)!=0{return fmt.Errorf("%w: HTTP MCP cannot include stdio argv",ErrInvalid)}
+ default:
+  return fmt.Errorf("%w: unsupported MCP transport",ErrInvalid)
+ }
+ if m.URL!=""{return fmt.Errorf("%w: endpoint must be stored in local Windows secret store",ErrInvalid)}
+ return nil
+}
+
+// UpdateMCP rewrites only the MCP connection inside an existing Windows
+// profile. It preserves unknown JSON fields, folder/program grants and
+// unrelated configuration. The endpoint and Authorization never enter JSON.
+func (s *Store) UpdateMCP(id string,m MCPConfig)error{
+ if err:=validateMCP(m);err!=nil{return err}
+ s.mu.Lock();defer s.mu.Unlock()
+ path,err:=s.FilePath(id,false);if err!=nil{return err}
+ data,err:=os.ReadFile(path)
+ if errors.Is(err,os.ErrNotExist){return ErrNotFound}
+ if err!=nil{return ErrInvalid}
+ var raw map[string]json.RawMessage
+ if json.Unmarshal(data,&raw)!=nil{return ErrInvalid}
+ var p WindowsPermissions
+ if json.Unmarshal(data,&p)!=nil||validateWindows(id,&p)!=nil{return ErrInvalid}
+ // A nil root map is an invalid profile rather than an empty object.
+ if raw==nil{return ErrInvalid}
+ encoded,err:=json.Marshal(m);if err!=nil{return ErrInvalid}
+ raw["mcp"]=encoded
+ updated,err:=json.MarshalIndent(raw,"","  ");if err!=nil{return ErrInvalid}
+ return writeAtomic(path,append(updated,'\n'))
+}
