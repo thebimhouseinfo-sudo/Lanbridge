@@ -32,6 +32,7 @@ const (
 	TypeChat          = "chat"
 	TypeUIState       = "ui_state"
 	TypeProjectStatus = "project_status"
+	TypeMaintenance = "maintenance"
 )
 
 // ErrorInfo represents structured error details
