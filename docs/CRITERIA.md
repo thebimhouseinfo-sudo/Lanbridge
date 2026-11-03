@@ -628,3 +628,22 @@ tiêu chí nhẹ + tin cậy. Phạm vi cá nhân → gate đơn giản là đ�
   hoặc chưa load = không PROJECT_READY, cấm dùng tools để tránh bypass.
   Chỉ user yêu cầu và Mac manual Unlock mới được thêm/bớt blacklist.
   AutoCAD OPEN/COM chỉ là ví dụ, không hardcode làm blacklist mặc định.
+
+
+## 22. Bridge source maintenance from Mac — human-approved exception
+
+- Khi hai Bridge đã kết nối, Mac mặc định được Read và Sync vào đúng thư mục source LAN Bridge trên Windows đã xác định, kể cả khi chưa mở config project. Quyền này hiển thị rõ và Windows user có thể thu hồi. Đây là ngoại lệ riêng cho source Bridge đối với yêu cầu PROJECT_READY; các thao tác project khác vẫn giữ nguyên điều kiện hiện có.
+- Không cho Sync thư mục config của Bridge; quyền source không mặc nhiên cho đọc credential, .env, token, pairing hay config riêng tư. Không tự thay binary Bridge đang chạy; tránh ghi đè thay đổi của user.
+- Quyền Read/Sync mặc định không tự cấp Exec hoặc quyền project khác. Build/test dùng quyền thực thi được Windows cấp. Không yêu cầu Codex hoặc Claude Code trên Windows.
+- MCP forwarding là generic theo project, hỗ trợ MCP server stdio và Streamable HTTP phù hợp; CadGPT chỉ là trường hợp kiểm thử. Giữ admission/session và các quy tắc của server; không hardcode CAI/AutoCAD hoặc bỏ qua blacklist. Cấu hình MCP tách biệt với MCP grant, bảo vệ secret và giữ profile/grant khi chỉnh sửa.
+- Xác minh với MCP generic và CadGPT, test quyền, lỗi, kết nối lại, tính riêng biệt của session và không lộ secret. Test hai máy thực tế báo riêng với CI. Cài lại giữ config, grants, pairing và blacklist.
+
+Human đã xác nhận sau tư vấn kỹ thuật ngày 2026-11-03.
+
+
+## 23. Keep connected Bridge awake — human-approved
+
+- Khi Bridge đang chạy trên Mac hoặc Windows, ngăn máy tự sleep vì nhàn rỗi; màn hình vẫn có thể tắt hoặc khóa. Khi Exit Bridge, trả lại hoạt động tiết kiệm điện bình thường, không đổi cài đặt OS lâu dài.
+- Project đã kết nối không tự timeout chỉ vì nhàn rỗi. Tiếp tục phát hiện ngắt mạng thực, kết nối lại và giữ quy tắc mở config hiện hành; timeout của từng lệnh độc lập với timeout phiên. Không hứa ngăn sleep do user chủ động, đóng nắp, pin cạn hoặc chính sách hệ điều hành.
+
+Human xác nhận sau tư vấn kỹ thuật ngày 2026-11-03.

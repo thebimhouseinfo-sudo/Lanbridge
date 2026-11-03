@@ -1,6 +1,32 @@
 # Milestones — LAN Test Bridge v1.3 (legacy M1–5 + Criteria-aligned M6–10)
 
-Status: ~~CODE COMPLETE; REAL-HOST ACCEPTANCE PENDING (rev 3)~~ Legacy M1–5 code marked complete but native acceptance pending; new M6–10 PLANNED, not implemented (2026-11-03).
+## Amendment milestones 11–14 — PLANNED, not implemented
+
+### Milestone 11: Generic project MCP
+
+**GOAL:** GOAL-19; Criteria §§8, 20–22. Windows UI edits and tests a project's stdio/Streamable HTTP connection independently of MCP grant, preserving the existing profile and grants. Mac discovers and calls permitted tools, receives list changes, and gets bounded, redacted errors. Server sessions do not cross distinct agent conversations.
+
+**Verification:** generic stdio and HTTP fixture covering initialize, session IDs, notifications, refresh, timeout, malformed/failed server, reconnect and redaction; isolate two clients; exercise absent/mismatched config and blacklist/grants; unchanged stdio regression. CadGPT outer MCP and its drawing/admission behavior require real two-machine evidence, with no live-drawing mutation. Exit: tests and review pass; external server identity limitations recorded explicitly.
+
+### Milestone 12: Maintain Bridge source from Mac
+
+**GOAL:** GOAL-20; Criteria §22. Mac is the source of changes and its agent can discover the permitted Windows source and relevant non-secret configuration facts. Windows user can see/revoke default paired-device Read+Sync access even without project configs. Config/private paths and running binaries are excluded. Routine sync needs no user notification or confirmation; Exec remains separately granted.
+
+**Verification:** discover permitted source and non-secret setup facts, independent access with configs missing, paired-only behavior, root and path traversal/junction boundaries, private paths, revoked rights, 5 MB and atomic write, locked-file errors, no routine change notification, preservation of existing project grants and lack of Exec; run build/test using explicitly granted Exec without a Windows coding agent. Native two-machine and Windows file-sharing tests are separate. Exit: tests and review pass and OS-dependent limitations are recorded.
+
+### Milestone 13: Awake while Bridge runs
+
+**GOAL:** GOAL-21; Criteria §23. Both apps inhibit automatic idle system sleep while running and release inhibition on Exit; screen may sleep. Active project remains available during idle; real disconnection uses current reconnect/config-open rules.
+
+**Verification:** lifecycle test for acquire/release and failure reporting; idle and network disconnect tests; physical Windows and Mac sleep/release checks reported separately. Explicit sleep, closing lid and depleted battery are not guaranteed. Exit: tests and review pass with native evidence or UNVERIFIED.
+
+### Milestone 14: Integrated validation and matching packages
+
+**GOAL:** GOAL-22; Criteria §§11, 22–23. Validate generic MCP and CadGPT outer MCP, maintenance, idle behavior and install/reinstall on the same candidate SHA. Windows/macOS CI produces matching packages; preserve pairing, grants, configs and blacklist.
+
+**Verification:** GitHub Windows/macOS tests and artifacts for the candidate SHA; two-machine test with named test drawing only, generic MCP and no Windows agent; reinstall data preservation and safe update while Bridge is exited; secret scan of errors/logs. Report PASS/FAIL/BLOCKED/UNVERIFIED separately. Release only once applicable checks pass; never equate CI with physical acceptance.
+
+Historical status of legacy M1–10 follows; it does not override amendment milestones 11–14 or assert their completion. Real-host acceptance remains pending (2026-11-03).
 
 Legacy technical detail: docs/TECHNICAL_PROPOSAL.md. Revised approved-scope planning: docs/IMPLEMENTATION_PLAN.md (reviewed). New proposal: docs/TECHNICAL_PROPOSAL_V2.md (next step).
 

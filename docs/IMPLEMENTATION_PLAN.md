@@ -1,7 +1,25 @@
 # Implementation Plan — LAN Test Bridge, Criteria-aligned v1.3
 
-Status: REVISED — exact-review verdict recorded separately in docs/reports/ (2026-11-03)
-Source of truth: [docs/CRITERIA.md](CRITERIA.md), Git blob `8a9e88c0bb3dca430c97fc57cc74b9406426390b`.
+## Amendment 2026-11-03 — generic MCP and Bridge maintenance
+
+### GOAL
+
+Deliver generic project MCP forwarding, safe maintenance of Bridge source from Mac and idle continuity on both machines (CRITERIA §§8, 11, 20–23). Existing project permissions, explicit blacklist, pairing and profile persistence remain intact. Milestones 11–14 and Technical Proposal V3 govern this amendment; previous phases remain historical and are not a claim that their native acceptance passed.
+
+**GOAL-19 — Generic project MCP:** An existing Windows project can configure, test and use an independent stdio or Streamable HTTP MCP server through the Mac agent; server admission/session identity remains owned by the server. Windows local credentials are not disclosed. Criteria §§8, 20–22.
+
+**GOAL-20 — Bridge source maintenance:** The Mac is the development/source-of-change side; a paired Mac agent can discover the permitted Windows source and connection facts, read and sync the identified Windows Bridge source without a project config. Windows user can see and revoke this access. Config and private data are excluded; routine changes do not cause user notifications or extra confirmations. Execution requires a separate grant. Criteria §22.
+
+**GOAL-21 — Awake and idle continuity:** Each running Bridge prevents automatic idle system sleep without forcing display on; an idle connected project does not expire. Exit releases the power request; a real disconnect retains existing reconnect and project config rules. Criteria §23.
+
+**GOAL-22 — Evidence and delivery:** Windows/macOS CI builds and tests the same source; two-machine and physical power tests are reported separately. Publish matching installer packages only after required checks; reinstall preserves data. Criteria §§11, 22–23.
+
+**Decisions and boundaries:** Human request and subsequent confirmations in this conversation are the source; no accepted DEC files exist in `docs/discussions/`. No CAD-specific bridge, default CAD blacklist, Windows coding agent, general shell sandbox, cloud service, or change to user-selected drawing. Keep generic blacklist limitations explicit. Source maintenance exception is narrowly scoped and does not make project MCP or Exec ready without matching configs and grants. Session isolation and native OS behavior remain UNVERIFIED until tested.
+
+**Execution order:** M11 establishes generic MCP and project configuration; M12 adds the independent source-maintenance permission; M13 covers power/session lifecycle; M14 integrates, packages and records evidence. Tasks may share a milestone but must be reviewed and tested before advancing. `docs/TECHNICAL_PROPOSAL_V3.md` is the descriptive design for these milestones, subject to PRE_CODE_TECHNICAL review. No code is authorized by a draft review verdict.
+
+Status: amendment GOAL-19–22 has Critic design PASS; implementation and native acceptance pending. Prior review recorded separately in docs/reports/ (2026-11-03).
+Source of truth: [docs/CRITERIA.md](CRITERIA.md), including approved §§22–23 in this working tree. Blob `8a9e88c0bb3dca430c97fc57cc74b9406426390b` is the pre-amendment baseline.
 Baseline: existing v1.0 implementation and legacy Milestones 1–5; see [docs/ARCHITECTURE.md](ARCHITECTURE.md) and current Go code. No product source edits authorized by this document.
 GSA execution mode: DIRECT_AGENT/ephemeral; **do not create any GSA Project, Job or Project Memory**. Reviewer feedback is advisory until independently verified against the actual Git revision.
 
@@ -51,7 +69,7 @@ Keep original goal names and their intended outcomes; update acceptance to new C
 - **GOAL-10: UI** — chat remains main surface; Windows Settings for grants/apps, Mac Settings for blacklist/lock and activity.
 - **GOAL-11: Install scripts** — preserve installers; add local profile setup instructions.
 - **GOAL-12: Giao diện cho Mac agent** — preserve Claude/Codex single MCP registration and lock; add existing-config-only read/load and separate unlocked blacklist edit.
-- **GOAL-13: Paired project identity** — local Windows permission config + local Mac blacklist, project ID match, no cross-machine config sync.
+- **GOAL-13: Paired project identity** — local Windows permission config + local Mac blacklist, project ID match, no cross-machine config sync. Bridge source maintenance is the narrow Criteria §22 exception.
 - **GOAL-14: First-time empty blacklist** — app initializes file with 0 entries; open never creates/edits; missing/unloaded fails closed for project operations.
 - **GOAL-15: User-owned blacklist editing** — Mac manual Lock/Unlock; agent reads repo and edits only when explicitly requested and unlocked; lock persists.
 - **GOAL-16: Generic Windows development** — no CAI/RAI-specific restrictions; optional CAI OPEN/COM example only when user explicitly adds rule.
