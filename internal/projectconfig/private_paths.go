@@ -39,10 +39,10 @@ func IsBridgePrivatePath(candidate, appDataRoot string) bool {
  // Restrict only Bridge configuration and pairing state, not arbitrary
  // logs/files a Windows user may intentionally grant access to.
  parts:=strings.Split(rel,string(os.PathSeparator))
- if len(parts)>0 && strings.EqualFold(parts[0],"profiles"){return true}
+ if len(parts)>0 && (strings.EqualFold(parts[0],"profiles")||strings.EqualFold(parts[0],"mcp-secrets")){return true}
  if len(parts)!=1{return false}
  switch strings.ToLower(parts[0]) {
- case "config.json","state.json","blacklist-locks.json":
+ case "config.json","state.json","blacklist-locks.json","maintenance.json":
   return true
  }
  return false
