@@ -71,12 +71,12 @@ Notation: **CI_VERIFIED** means automated source/unit checks exercise the stated
 - Mac agent `config_load` reads only an existing file; first-time app setup creates an empty file; absent/unloaded file prevents `PROJECT_READY`.
 - Two files stay **local and distinct**, sharing only Project ID/readiness metadata.
 - AutoCAD OPEN/COM restrictions are opt-in user-configured examples and are **not** default rules for new apps. Opaque nested command matching that cannot be identified at Mac boundary is **UNVERIFIED** until integration; do not claim app-specific enforcement.
-- New named release `test-2026-11-03-v2` is separate from old `test-2026-11-03` to avoid stale installer assets.
+- Versioned release tags `test-<main commit SHA first 12 chars>` supersede the old fixed tag `test-2026-11-03`; each release includes Mac/Windows packages and `SHA256SUMS.txt` for correct reinstall identification.
 - No new GSA Project/Job created. Direct harness/skills used for planning/coding/review/test guidance.
 
 ### Human local retest handoff — must perform **after** release build
 
-1. Download and install **both v2 packages**; verify app launches, tray/menu behavior, old App Data unaffected, and firewall permissions.
+1. Download and install **both packages from the same newest `test-<main SHA>` release**; verify SHA256, app launches, tray/menu behavior, old App Data unaffected, and firewall permissions.
 2. Connect on LAN; pair or reconnect; Windows UI create a new profile with **zero inherited grants**, then explicitly Grant Folder/Program and manually Open it.
 3. On Mac create first-time empty blacklist with **same Project ID**; agent `config_load` existing file only; verify all generic MCP project tools listed and callable.
 4. Test wrong ID, absent/corrupt/unloaded Mac blacklist; verify project tools/Read/Sync/Exec/App are blocked. Verify neither project config transfers across machines.
@@ -85,4 +85,4 @@ Notation: **CI_VERIFIED** means automated source/unit checks exercise the stated
 7. Test Start/Stop or restart on a throwaway Windows program; avoid destructive tests on production drawings. Optional CAI sample only with an explicitly designated test drawing and user-defined blacklist.
 8. Verify Exit/cancellation, idle CPU/RAM and reconnect. Capture exact version, host OS, results and logs; mark each NATIVE_PENDING/PARTIAL case PASS/FAIL based on actual results.
 
-**Merge/release gate:** successful *latest* PR CI on `macos-15` and `windows-latest`, clean independent review of code/document changes, no known failing automated regression, then merge with expected head SHA. After merge, require **main CI** and `publish-test-packages` success and verify **v2 release assets**; only then tell the user the installers are ready. If any gate fails, stop and report the blocker instead of pretending completed.
+**Merge/release gate:** successful *latest* PR CI on `macos-15` and `windows-latest`, clean independent review of code/document changes, no known failing automated regression, then merge with expected head SHA. After merge, require **main CI** and `publish-test-packages` success and verify **v2 release assets**; only then tell the user the installers are ready. The package source SHA must match merged `main`; the old fixed-tag releases are not installation candidates. If any gate fails, stop and report the blocker instead of pretending completed.
