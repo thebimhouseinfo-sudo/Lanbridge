@@ -179,14 +179,21 @@ pasted logs, Copy. Không chat AI, không auto-execute.
     CAI/RAI vẫn sở hữu nghiệp vụ test/drawing.
 22. Mỗi dự án có đúng hai file config riêng trong App Data: Permission
     Config (folders/programs/grants) và Command Blacklist Config.
-23. Windows user Edit/Revoke Permission Config dù blacklist Locked.
+23. Windows user Edit/Revoke Permission Config dù blacklist Locked;
+    các nút Grant/Edit/Revoke Folder/Program nằm ở Windows UI.
 24. Agent đọc repo, theo yêu cầu user được thêm/bớt/sửa blacklist
-    khi Windows user đã Unlock thủ công; Locked thì bị từ chối.
+    khi ~~Windows user đã Unlock thủ công~~ **người dùng đã Unlock
+    thủ công trên Mac UI**; Locked thì bị từ chối.
 25. File blacklist Locked là read-only qua UI/agent/config API, vẫn
     đọc/load/áp dụng được; Lock state tồn tại qua restart.
-26. Chỉ Windows user Unlock thủ công, agent không tự Unlock.
+26. ~~Chỉ Windows user Unlock thủ công~~ Chỉ **người dùng trực tiếp
+    trên Mac UI** được Lock/Unlock; agent không tự Unlock.
 27. Project CAI/RAI dùng blacklist riêng; agent không được dùng Shell
     để vòng qua trạng thái Locked của blacklist.
+28. Windows UI không quản lý Command Blacklist; Mac UI hiển thị
+    danh sách blacklist theo project và nút Lock/Unlock thủ công.
+29. Từ Mac UI agent chỉ sửa blacklist khi Unlocked và user yêu cầu;
+    không cho Mac UI cấp/sửa/thu hồi Windows Folder/Program Grants.
 
 ## 12. Explicit NON-goals
 
@@ -232,7 +239,10 @@ trước khi chọn thư viện.
   khôi phục profile dùng gần nhất khi khởi động.
 - Profile lưu lâu dài trong **App Data của chính Bridge** trên máy liên quan,
   không nằm bắt buộc trong repo và không cần chỉnh JSON thủ công.
-- UI trên Windows/Mac phải cho phép chọn lại profile phù hợp. Agent trên Mac
+- UI trên Windows/Mac phải cho phép chọn lại profile phù hợp. **Windows UI**
+  quản lý file Permission Config (Folder/Program Grant/Edit/Revoke);
+  **Mac UI** quản lý file Command Blacklist (xem/sửa khi Unlocked,
+  Lock/Unlock thủ công). Agent trên Mac
   có thể nhận lệnh từ user để load profile đã lưu, ví dụ
   `config.list()`, `config.current()`, `config.save(name)`,
   `config.load(name_or_id)`, `config.delete(name_or_id)`.
@@ -241,10 +251,11 @@ trước khi chọn thư viện.
   Exec/Build, Software Control và thông tin MCP khi áp dụng.~~
   Mỗi dự án có **đúng hai file config** riêng trong App Data của Bridge:
   (1) **Permission Config**, chứa folders, programs, Actual Granted
-  Permissions và tham chiếu thực thi/MCP nếu cần; (2) **Command Blacklist
-  Config**, chứa danh sách lệnh/API bị cấm riêng cho dự án. Connection/
-  pairing chung có thể ở Bridge global settings, không thêm config
-  thứ ba cho riêng dự án. Quy tắc chỉnh sửa/Lock xem §19.
+  Permissions và tham chiếu thực thi/MCP nếu cần, do **Windows UI** quản lý;
+  (2) **Command Blacklist Config**, chứa danh sách lệnh/API bị cấm riêng
+  cho dự án, do **Mac UI** quản lý. Connection/pairing chung có thể ở
+  Bridge global settings, không thêm config thứ ba cho riêng dự án.
+  Quy tắc chỉnh sửa/Lock xem §19.
 - **Windows là chủ thể quyết định Grant**: Mac không thể sửa file profile
   phía Mac để tạo/nâng quyền trên Windows. Load profile Windows đã lưu
   có thể khôi phục Grant do user đã cấp, không phải xin duyệt lại chỉ
@@ -346,8 +357,10 @@ App Data/TestBridge/profiles/<project-id>/
 - Lưu folders, programs/executables, Read/Sync/Exec, MCP Access,
   Start/Stop và các Actual Grants. Lưu workspace/project reference
   nếu cần vận hành.
-- Windows user tự Add Folder/App, Accept/Reject/Edit/Revoke qua UI;
-  không bắt buộc Mac yêu cầu trước hoặc sửa JSON.
+- Windows user tự Add Folder/App, Accept/Reject/Edit/Revoke qua
+  **Windows UI**; không bắt buộc Mac yêu cầu trước hoặc sửa JSON.
+  Permission UI và mọi thay đổi Grant/Permission được thực hiện
+  trên máy Windows, không chuyển sang Mac UI.
 - Agent chỉ Request quyền, **không tự sửa file permission** nhằm cấp
   hoặc nâng quyền cho mình.
 - **Lock/Unlock của blacklist KHÔNG khóa file này**. Windows vẫn
@@ -358,13 +371,18 @@ App Data/TestBridge/profiles/<project-id>/
 - Chứa danh sách command/API blacklist riêng của dự án. Agent
   **đọc/khảo sát repo** trước khi đề xuất cấu hình và chỉ chỉnh
   (thêm/bớt/sửa) theo yêu cầu của user.
-- Agent **chỉ được phép sửa file này khi Windows user đã Unlock thủ công**.
-  Windows UI phải có nút **Lock / Unlock**, thể hiện rõ trạng thái.
+- Agent **chỉ được phép sửa file này khi ~~Windows user đã Unlock thủ công~~
+  người dùng đã Unlock thủ công trên Mac UI**.
+  ~~Windows UI phải có nút **Lock / Unlock**~~
+  **Mac UI có nút Lock / Unlock và danh sách Command Blacklist theo
+  project**, thể hiện rõ trạng thái.
 - Khi **Locked**: nội dung blacklist là read-only; cấm ghi đè,
   thêm/bớt/sửa/xóa bằng UI hoặc API agent; vẫn được xem, load và áp dụng
   để kiểm thử. Agent không được dùng Shell/Sync để vòng qua Lock.
 - Khi **Unlocked**: Agent được user yêu cầu có thể cập nhật blacklist.
-  Chỉ user Windows được bấm Lock/Unlock; không có auto-unlock cho agent.
+  ~~Chỉ user Windows được bấm Lock/Unlock~~
+  **Chỉ người dùng thao tác trực tiếp trên Mac UI được bấm Lock/Unlock**;
+  không có auto-unlock hoặc API Lock/Unlock dành cho agent.
 - Lock state được lưu qua restart (có thể là metadata chung của Bridge,
   không tạo file config thứ ba cho dự án).
 - Lock chỉ khóa **chỉnh sửa file blacklist**, không tạo thêm gate
@@ -374,6 +392,9 @@ App Data/TestBridge/profiles/<project-id>/
 
 - Save/Load profile sử dụng đúng cặp file của dự án; không đưa blacklist
   của CAI sang RAI, không overwrite file blacklist đang Locked.
+  **Windows UI chỉ quản lý Permissions; Mac UI chỉ quản lý Blacklist.**
+  Vị trí UI không tự thay đổi quy tắc lưu file trong Bridge App Data.
+  Trạng thái Locked được đồng bộ để cấm chỉnh blacklist ở mọi đường ghi.
 - Bridge nạp blacklist của dự án; dispatcher đủ thông tin để nhận
   diện command/API có trách nhiệm kiểm tra nó. Với AutoCAD in-app
   OPEN và COM Open trong MCP payload, CAI/MCP dispatcher kiểm tra.
@@ -404,3 +425,8 @@ tiêu chí nhẹ + tin cậy. Phạm vi cá nhân → gate đơn giản là đ�
   Config được AI chỉnh theo yêu cầu user chỉ khi manual Unlock.
   Lock blacklist không ảnh hưởng Edit/Revoke Permission Config;
   nội dung cũ xung đột tiếp tục giữ lại bằng gạch bỏ.
+- v1.2a HUMAN CLARIFICATION: 2026-11-03 — Windows UI độc quyền
+  Grant/Edit/Revoke Folder và Program. **Mac UI** sở hữu Command
+  Blacklist và nút Lock/Unlock thủ công; agent chỉ chỉnh blacklist
+  theo yêu cầu user khi đã Unlocked. Chỉ thay UI authority, không
+  tự đặt thêm gate hay thay nơi lưu dữ liệu chỉ vì đổi UI.
