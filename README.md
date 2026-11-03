@@ -4,12 +4,12 @@ Bridge kết nối máy Mac Apple Silicon với máy Windows 10/11 trên cùng m
 
 ## Cài bản thử qua shell
 
-Bản thử được phát hành theo SHA của `main`, với tag dạng `test-<12 ký tự SHA>`. Hai lệnh dưới đây tự lấy **release thử nghiệm mới nhất** từ GitHub, tải gói vào thư mục tạm rồi cài. Cần Internet. Nghiệm thu máy thật vẫn chờ thực hiện.
+Hai lệnh dưới đây cài cùng bản thử **test-de9c4ddb6754** đã qua CI, kiểm tra SHA-256 trước khi giải nén và giữ cấu hình hiện có. Cần Internet. Thoát LAN Bridge và phiên MCP trên cả hai máy trước khi cài. Nghiệm thu máy thật vẫn chờ thực hiện.
 
 **Windows 10/11 x64:** Mở PowerShell và chạy một lệnh:
 
 ```powershell
-& { $ErrorActionPreference = 'Stop'; $releases = @(Invoke-RestMethod 'https://api.github.com/repos/thebimhouseinfo-sudo/Lanbridge/releases?per_page=30' | Where-Object { $_.tag_name -match '^test-[0-9a-f]{12}$' } | Select-Object -First 1); if (-not $releases) { throw 'No main-SHA test release found' }; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest "https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/$($releases[0].tag_name)/testbridge-windows-amd64.zip" -OutFile "$d\package.zip"; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1" }
+& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest -UseBasicParsing 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-de9c4ddb6754/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; if ((Get-FileHash "$d\package.zip" -Algorithm SHA256).Hash -ne '2817bb355c013e5d4bf3826b2f5aa9f3bba511a850e1226f828f0bf4199306d3') { throw 'Checksum không khớp' }; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'Cài đặt thất bại' } }
 ```
 
 Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut và tạo `%APPDATA%\LanBridge\config.json` nếu chưa có. Chạy shortcut, tìm icon Bridge trong khay hệ thống, chọn **Mở giao diện**. Khi Windows Firewall hỏi, cho phép trên mạng Private tin cậy. Cài lại giữ file config hiện có.
@@ -17,12 +17,12 @@ Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut 
 **Mac Apple Silicon:** Mở Terminal và chạy một lệnh:
 
 ```sh
-tag="$(curl -fsSL 'https://api.github.com/repos/thebimhouseinfo-sudo/Lanbridge/releases?per_page=30' | grep -m1 -oE '"tag_name": "test-[a-f0-9]{12}"' | cut -d'"' -f4)" && [ -n "$tag" ] && d="$(mktemp -d)" && curl -fL "https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/$tag/testbridge-macos-arm64.zip" -o "$d/package.zip" && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
+d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-de9c4ddb6754/testbridge-macos-arm64.zip' -o "$d/package.zip" && [ "$(shasum -a 256 "$d/package.zip" | cut -d ' ' -f 1)" = "a4e7421c97653a074aa00f9f30f1e8777c29a50edae443d7f519716fb44f6483" ] && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
 ```
 
 Installer chép app vào `~/Applications/LAN Bridge.app`, chép lệnh `bridge` vào `~/.local/bin` và mở app. Chọn **Mở giao diện** từ icon trên thanh menu; cho phép Local Network nếu macOS hỏi. Nếu macOS chặn app chưa được ký, làm theo thông báo của hệ điều hành trước khi tiếp tục.
 
-Workflow chỉ xuất bản package sau khi CI của `main` PASS. Mỗi release có tag theo SHA của source và file `SHA256SUMS.txt` để xác minh gói. Xem [GitHub Releases](https://github.com/thebimhouseinfo-sudo/Lanbridge/releases) và [GitHub Actions](https://github.com/thebimhouseinfo-sudo/Lanbridge/actions). **Thoát cả hai Bridge và phiên MCP trước khi cài lại**; installer giữ App Data/config cũ. Không dùng release cũ `test-2026-11-03`.
+README ghim cùng một bản trên hai máy; bản phát hành mới hơn chỉ được dùng khi cập nhật các lệnh này. Workflow chỉ xuất bản package sau khi CI của `main` PASS. Mỗi release có tag theo SHA của source và file `SHA256SUMS.txt` để xác minh gói. Xem [GitHub Releases](https://github.com/thebimhouseinfo-sudo/Lanbridge/releases) và [GitHub Actions](https://github.com/thebimhouseinfo-sudo/Lanbridge/actions). **Thoát cả hai Bridge và phiên MCP trước khi cài lại**; installer giữ App Data/config cũ. Không dùng release cũ `test-2026-11-03`.
 
 Giao diện ưu tiên mở cửa sổ Edge hoặc Chrome cỡ ban đầu khoảng 500 × 900; có thể thay đổi kích thước. Khi không tìm thấy hoặc không khởi chạy được, Bridge thử trình duyệt mặc định. Đóng cửa sổ chỉ đóng giao diện: chọn **Thoát** trong Bridge để kết thúc phiên.
 
