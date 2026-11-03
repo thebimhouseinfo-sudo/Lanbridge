@@ -348,6 +348,30 @@ func (g *Gatekeeper) AddGrant(path string, caps []string) error {
 	return nil
 }
 
+// ReplaceGrants activates a Windows-user-selected profile as the ONLY
+// effective permission set. Validate the whole profile before persisting so
+// a malformed grant never leaves a partially upgraded permission state.
+func (g *Gatekeeper) ReplaceGrants(entries []store.PermissionGrant) error {
+ validated:=make([]store.PermissionGrant,0,len(entries))
+ for _,entry:=range entries {
+  if err:=g.ValidateGrantConstraints(entry.Path,entry.Capabilities);err!=nil{return err}
+  path,err:=canonicalDirectory(entry.Path);if err!=nil{return err}
+  for _,existing:=range validated {
+   if samePath(existing.Path,path){return fmt.Errorf("duplicate grant for %s",path)}
+  }
+  validated=append(validated,store.PermissionGrant{
+   Path:path,Capabilities:append([]string(nil),entry.Capabilities...),GrantedAt:entry.GrantedAt,
+  })
+ }
+ g.mu.Lock()
+ defer g.mu.Unlock()
+ state,err:=g.store.Load();if err!=nil{return err}
+ state.Permissions=validated
+ if err:=g.store.Save(state);err!=nil{return err}
+ g.grants=validated
+ return nil
+}
+
 // RevokeGrant removes permissions for a path
 func (g *Gatekeeper) RevokeGrant(path string) error {
 	if !filepath.IsAbs(path) {
