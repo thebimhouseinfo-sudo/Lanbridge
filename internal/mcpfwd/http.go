@@ -192,3 +192,13 @@ func (h *HTTPMCP) startEvents(){
   }
  }()
 }
+
+func openHTTPSession(projName,endpoint,authorization string)(*Session,error){
+ h,err:=newHTTPMCP(endpoint,authorization)
+ if err!=nil{return nil,err}
+ s:=&Session{ProjectName:projName,http:h,transport:"streamable_http",endpoint:endpoint}
+ if err:=s.initialize();err!=nil{h.close();return nil,fmt.Errorf("MCP_HTTP_INITIALIZE_FAILED: %w",err)}
+ if err:=s.refreshTools();err!=nil{h.close();return nil,fmt.Errorf("MCP_HTTP_LIST_FAILED: %w",err)}
+ h.startEvents()
+ return s,nil
+}
