@@ -190,6 +190,21 @@
     <section class="section">
       <h2>Quyền đã cấp</h2>
       <div id="permissionGrants"><p class="empty-state">Chưa cấp quyền nào.</p></div>
+      <div id="windowsFolderAdd">
+        <p class="hint">Windows user chủ động Grant Folder (không cần Mac request):</p>
+        <div class="address-form">
+          <input id="folderGrantPath" type="text" placeholder="C:\Project\Folder" aria-label="Windows folder grant">
+          <button type="button" class="btn-secondary" onclick="pickWindowsPath('folder','folderGrantPath')">Browse…</button>
+        </div>
+        <div class="cap-list" style="margin:8px 0">
+          <label><input type="checkbox" class="newFolderCap" value="read" checked> Read</label>
+          <label><input type="checkbox" class="newFolderCap" value="sync"> Sync</label>
+          <label><input type="checkbox" class="newFolderCap" value="execute"> Exec</label>
+          <label><input type="checkbox" class="newFolderCap" value="mcp"> MCP</label>
+        </div>
+        <button type="button" class="btn-primary" onclick="addWindowsFolderGrant()">Grant Folder</button>
+        <p id="folderGrantAction" class="form-status" role="status"></p>
+      </div>
     </section>
 
     <section class="section" id="projectProfilesSection">
@@ -241,7 +256,17 @@
     <section id="appSection" class="section" style="display: none;">
       <h2>Start/Stop ứng dụng</h2>
       <p class="hint">Quyền bật ở đây chỉ có hiệu lực trong phiên Bridge hiện tại.</p>
-      <div id="appList"><p class="empty-state">Không có ứng dụng nào trong config.json.</p></div>
+      <div id="appList"><p class="empty-state">Chưa có ứng dụng trong config đã chọn.</p></div>
+      <div id="windowsProgramAdd">
+        <p class="hint">Add Program trên Windows:</p>
+        <input id="newProgramName" type="text" placeholder="Program name" aria-label="Program name" style="width:100%;margin-bottom:6px">
+        <div class="address-form">
+          <input id="newProgramPath" type="text" placeholder="C:\Program Files\MyApp\App.exe" aria-label="EXE path">
+          <button type="button" class="btn-secondary" onclick="pickWindowsPath('app','newProgramPath')">Browse EXE…</button>
+        </div>
+        <button type="button" class="btn-primary" onclick="addWindowsProgram()" style="margin-top:8px">Add Program</button>
+        <p id="programAction" class="form-status" role="status"></p>
+      </div>
     </section>
 
     <section id="mcpInstructions" class="section" style="display: none;">
@@ -359,6 +384,8 @@
       renderPermissionRequests(s.pending_permissions || []);
       renderPermissionGrants(s.permissions || []);
       document.getElementById('pendingPermissions').parentElement.style.display = isClient ? 'none' : 'block';
+      document.getElementById('windowsFolderAdd').style.display = isClient ? 'none' : 'block';
+      document.getElementById('windowsProgramAdd').style.display = isClient ? 'none' : 'block';
       document.getElementById('projectSection').style.display = isClient ? 'none' : 'block';
       document.getElementById('appSection').style.display = isClient ? 'none' : 'block';
       document.getElementById('mcpInstructions').style.display = isClient ? 'block' : 'none';
@@ -701,11 +728,43 @@
       });
     }
 
+    async function pickWindowsPath(kind, targetId) {
+      try {
+        const res = await fetch('/api/windows/pick?kind=' + encodeURIComponent(kind) + '&t=' + encodeURIComponent(token), {
+          method:'POST'
+        });
+        if (!res.ok) throw new Error((await res.text()).trim());
+        const data = await res.json();
+        if (data.path) document.getElementById(targetId).value = data.path;
+      } catch(e) { alert('Không chọn được đường dẫn Windows: ' + e.message); }
+    }
+    async function addWindowsFolderGrant() {
+      const path = document.getElementById('folderGrantPath').value.trim();
+      const capabilities = Array.from(document.querySelectorAll('input.newFolderCap:checked')).map(e => e.value);
+      if (!path || !capabilities.length) { alert('Chọn folder và capability.'); return; }
+      try {
+        await postJSON('/api/permissions/update', {path,capabilities});
+        document.getElementById('folderGrantAction').textContent = 'Windows đã Grant: ' + path;
+      } catch(e) {document.getElementById('folderGrantAction').textContent=e.message;}
+    }
+    async function addWindowsProgram() {
+      const name = document.getElementById('newProgramName').value.trim();
+      const path = document.getElementById('newProgramPath').value.trim();
+      if (!name || !path) {alert('Nhập tên và EXE path.');return;}
+      try {
+        await postJSON('/api/apps/edit',{action:'add',name,path});
+        document.getElementById('programAction').textContent = 'Đã thêm chương trình, chọn Start/Stop grants và Save Config.';
+      } catch(e) {document.getElementById('programAction').textContent=e.message;}
+    }
+
     function renderApps(apps) {
       const container = document.getElementById('appList');
       container.replaceChildren();
       if (!apps.length) {
-        container.innerHTML = '<p class="empty-state">Không có ứng dụng nào trong config.json.</p>';
+        const empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'Chưa có ứng dụng. Windows user có thể Add Program bên dưới.';
+        container.appendChild(empty);
         return;
       }
       apps.forEach(app => {
@@ -716,54 +775,61 @@
         const path = document.createElement('span');
         path.className = 'app-path';
         path.textContent = app.path || '(không có đường dẫn)';
-        const permissionLabel = document.createElement('label');
-        permissionLabel.className = 'cap-list';
-        const permission = document.createElement('input');
-        permission.type = 'checkbox';
-        permission.checked = Boolean(app.can_start_stop);
-        permissionLabel.append(permission, document.createTextNode('Cho phép Start/Stop'));
         const status = document.createElement('p');
         status.className = 'form-status';
-        permission.onchange = async () => {
-          const previous = !permission.checked;
-          permission.disabled = true;
+        const permissions = document.createElement('div');
+        permissions.className = 'cap-list';
+        const start = document.createElement('input');
+        const stop = document.createElement('input');
+        start.type = 'checkbox'; start.checked = Boolean(app.can_start);
+        stop.type = 'checkbox'; stop.checked = Boolean(app.can_stop);
+        const startLabel = document.createElement('label');
+        const stopLabel = document.createElement('label');
+        startLabel.append(start, document.createTextNode(' Allow Start'));
+        stopLabel.append(stop, document.createTextNode(' Allow Stop'));
+        permissions.append(startLabel, stopLabel);
+        async function updateCaps() {
+          start.disabled = true; stop.disabled = true;
           try {
-            await postJSON('/api/apps/permission', { id: app.id, allowed: permission.checked });
-          } catch (error) {
-            permission.checked = previous;
-            status.textContent = 'Không thể cập nhật quyền: ' + error.message;
-          } finally {
-            permission.disabled = false;
-          }
-        };
+            await postJSON('/api/apps/edit', {
+              action:'caps',id:app.id,start:start.checked,stop:stop.checked
+            });
+          } catch(e) {status.textContent = 'Không thể sửa quyền: ' + e.message;}
+          finally {start.disabled = false;stop.disabled = false;}
+        }
+        start.onchange = updateCaps;
+        stop.onchange = updateCaps;
         const actions = document.createElement('div');
         actions.className = 'btn-group';
-        ['start', 'stop'].forEach(action => {
+        ['start','stop'].forEach(action => {
           const button = document.createElement('button');
           button.className = action === 'stop' ? 'btn-danger' : 'btn-primary';
           button.type = 'button';
           button.textContent = action === 'start' ? 'Start' : 'Stop';
-          button.disabled = !app.can_start_stop;
+          button.disabled = action === 'start' ? !app.can_start : !app.can_stop;
           button.onclick = async () => {
             button.disabled = true;
             try {
               const response = await fetch('/api/apps/control?t=' + encodeURIComponent(token), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: app.id, action })
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({id:app.id,action})
               });
               if (!response.ok) throw new Error(await response.text());
               const result = await response.json();
               status.textContent = result.message || 'Đã gửi yêu cầu.';
-            } catch (error) {
-              status.textContent = 'Không thể điều khiển ứng dụng: ' + error.message;
-            } finally {
-              button.disabled = !permission.checked;
-            }
+            } catch(e) {status.textContent = 'Không điều khiển được ứng dụng: ' + e.message;}
           };
           actions.appendChild(button);
         });
-        card.append(name, path, permissionLabel, actions, status);
+        const remove = document.createElement('button');
+        remove.className='btn-secondary';remove.type='button';remove.textContent='Remove';
+        remove.onclick=async () => {
+          if (!confirm('Remove program khỏi config hiện tại?')) return;
+          try {await postJSON('/api/apps/edit',{action:'remove',id:app.id});}
+          catch(e){status.textContent=e.message;}
+        };
+        actions.appendChild(remove);
+        card.append(name,path,permissions,actions,status);
         container.appendChild(card);
       });
     }
