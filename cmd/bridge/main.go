@@ -26,6 +26,7 @@ import (
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/fileops"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/mcpfwd"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/permissions"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/store"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/transport"
@@ -133,6 +134,20 @@ func runHost(args []string) {
 		os.Exit(1)
 	}
 
+	// Local Windows project profiles are explicitly opened by the user.
+	// Network reconnection never reactivates a saved project.
+	profileDir, err := store.GetConfigDir()
+	if err != nil {
+		slog.Error("Failed to determine Windows profile directory", "error", err)
+		os.Exit(1)
+	}
+	hostProfiles, err := projectconfig.New(profileDir)
+	if err != nil {
+		slog.Error("Failed to initialize profile store", "error", err)
+		os.Exit(1)
+	}
+	hostSession := &projectconfig.Session{}
+
 	// 3. Setup TLS server
 	var pairedClientFingerprint atomic.Value
 	var hostConnected atomic.Bool
@@ -145,6 +160,13 @@ func runHost(args []string) {
 		if pairedClientFingerprint.Load().(string) == "" &&
 			msg.Type != protocol.TypePairInit && msg.Type != protocol.TypePairVerify && msg.Type != protocol.TypeUnpair {
 			return protocol.NewErrorResponse(msg.ID, "ERR_UNPAIRED", "pair this device before using the bridge")
+		}
+		if isProjectOperation(msg.Type) {
+			status := hostSession.Snapshot()
+			if !status.Ready {
+				return protocol.NewErrorResponse(msg.ID, status.Error,
+					"both Windows and Mac must open matching local project configs before using project tools")
+			}
 		}
 		return nil
 	})
@@ -224,7 +246,13 @@ func runHost(args []string) {
 		if !hostConnected.Load() || pairedClientFingerprint.Load().(string) == "" {
 			return
 		}
-		payload, err := json.Marshal(map[string]any{"permissions": gate.ListGrants()})
+		projectState := hostSession.Snapshot()
+		payload, err := json.Marshal(map[string]any{
+			"permissions": gate.ListGrants(),
+			"project_id": projectState.WindowsID,
+			"project_ready": projectState.Ready,
+			"project_error": projectState.Error,
+		})
 		if err != nil {
 			slog.Error("Failed to encode client UI state", "error", err)
 			return
@@ -248,6 +276,58 @@ func runHost(args []string) {
 			s.Permissions = gate.ListGrants()
 		})
 		sendClientUIState()
+	}
+	// Permission files are created/selected only by Windows human UI.
+	// Mac can see the project ID metadata but never receives the file.
+	webUI.SetProjectHandlers(
+		func() ([]string,error) {return hostProfiles.ListIDs(false)},
+		func(id string) error {
+			if err:=projectconfig.ValidateID(id);err!=nil{return err}
+			folders:=make([]projectconfig.FolderGrant,0)
+			for _,g:=range gate.ListGrants() {
+				folders=append(folders,projectconfig.FolderGrant{
+					Path:g.Path,Capabilities:append([]string(nil),g.Capabilities...),
+				})
+			}
+			apps:=make([]projectconfig.ProgramGrant,0,len(cfg.Apps))
+			for _,app:=range cfg.Apps {
+				apps=append(apps,projectconfig.ProgramGrant{
+					Name:app.Name,Executable:app.Path,
+				})
+			}
+			err:=hostProfiles.SaveWindows(id,projectconfig.WindowsPermissions{
+				SchemaVersion:projectconfig.SchemaVersion,ProjectID:id,
+				DisplayName:id,Folders:folders,Programs:apps,
+			})
+			if err!=nil{return err}
+			ids,_:=hostProfiles.ListIDs(false)
+			webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+			return nil
+		},
+		func(id string) error {
+			if !hostConnected.Load(){return errors.New("connect to Mac before opening a project")}
+			p,err:=hostProfiles.LoadWindows(id)
+			if err!=nil{return err}
+			grants:=make([]store.PermissionGrant,0,len(p.Folders))
+			for _,folder:=range p.Folders {
+				grants=append(grants,store.PermissionGrant{
+					Path:folder.Path,Capabilities:folder.Capabilities,
+				})
+			}
+			if err:=gate.ReplaceGrants(grants);err!=nil{return err}
+			if err:=hostSession.SetWindowsLoaded(id);err!=nil{return err}
+			status:=hostSession.Snapshot()
+			webUI.UpdateState(func(st *ui.UIState){
+				st.ProjectID=id;st.ProjectReady=status.Ready;st.ProjectError=status.Error
+			})
+			updatePermissionUI()
+			notifyProjectToolsChanged()
+			return nil
+		},
+		nil,nil,
+	)
+	if ids,err:=hostProfiles.ListIDs(false);err==nil{
+		webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
 	}
 	webUI.SetAppHandlers(
 		func(id string, allowed bool) error {
@@ -468,6 +548,31 @@ func runHost(args []string) {
 			"capabilities": capabilities,
 		})
 	})
+	// The Mac reports only an ID after its local blacklist was really opened.
+	// No Windows permission JSON or Mac blacklist JSON ever crosses the LAN.
+	server.RegisterHandler(protocol.TypeProjectStatus, func(msg *protocol.Message) (*protocol.Message,error) {
+		var req struct {
+			ProjectID string `json:"project_id"`
+			Loaded bool `json:"loaded"`
+		}
+		if err:=json.Unmarshal(msg.Payload,&req);err!=nil{
+			return protocol.NewErrorResponse(msg.ID,"ERR_PARAMS",err.Error()),nil
+		}
+		if req.Loaded {
+			if err:=hostSession.SetMacLoaded(req.ProjectID);err!=nil{
+				return protocol.NewErrorResponse(msg.ID,"CONFIG_INVALID",err.Error()),nil
+			}
+		}else{
+			_ = hostSession.SetMacLoaded("")
+		}
+		status:=hostSession.Snapshot()
+		webUI.UpdateState(func(st *ui.UIState){
+			st.ProjectReady=status.Ready;st.ProjectError=status.Error
+		})
+		sendClientUIState()
+		notifyProjectToolsChanged()
+		return protocol.NewResponse(msg.ID,protocol.TypeProjectStatus,status)
+	})
 	mcpMgr := mcpfwd.NewManager(notifyProjectToolsChanged)
 
 	// Register handler: exec_start → start a command, wait up to wait_seconds
@@ -622,6 +727,7 @@ func runHost(args []string) {
 
 	// Cancel running commands on graceful bye and reset incomplete pairing exchanges on disconnect.
 	server.SetCallbacks(func(peerFP string) {
+		hostSession.Clear()
 		hostConnected.Store(true)
 		slog.Info("Client connected", "fingerprint", peerFP)
 		trustedFP := pairedClientFingerprint.Load().(string)
@@ -648,6 +754,7 @@ func runHost(args []string) {
 			}
 		}
 	}, func() {
+		hostSession.Clear()
 		hostConnected.Store(false)
 		pairMgr.ResetExchange()
 		slog.Info("Client bye — cancelling all running commands")
@@ -661,6 +768,7 @@ func runHost(args []string) {
 			tray.SetState(ui.TrayStateDisconnected, "LAN Test Bridge (Ngắt kết nối)")
 		}
 	}, func() {
+		hostSession.Clear()
 		hostConnected.Store(false)
 		pairMgr.ResetExchange()
 		slog.Warn("Client connection dropped")
@@ -696,6 +804,18 @@ func runHost(args []string) {
 		// Block forever in headless mode
 		select {}
 	}
+}
+
+// isProjectOperation identifies calls that must not bypass a missing or
+// unloaded Mac blacklist. Pairing and UI setup remain usable before READY.
+func isProjectOperation(typ string) bool {
+ switch typ {
+ case protocol.TypeFileList,protocol.TypeFileInfo,protocol.TypeFileRead,
+      protocol.TypeFileSync,protocol.TypeExecStart,protocol.TypeExecResult,
+      protocol.TypeMCPCall,protocol.TypeAppControl:
+  return true
+ }
+ return false
 }
 
 // findProject looks up a ProjectConfig by name from the host config.
