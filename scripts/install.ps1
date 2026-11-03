@@ -96,6 +96,6 @@ try {
     Write-Host "On first start, allow Windows Firewall access only for trusted Private networks."
 }
 catch {
-    Write-Error "LAN Bridge installation failed: $($_.Exception.Message)"
+    Write-Error "LAN Bridge installation failed: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
     exit 1
 }
