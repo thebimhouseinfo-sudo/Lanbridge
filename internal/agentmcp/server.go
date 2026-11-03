@@ -367,7 +367,7 @@ func (s *StdioServer) handleToolsList(req *JSONRPCRequest) {
 				"type": "object",
 				"properties": map[string]any{
 					"project":    map[string]string{"type": "string", "description": "Tên project trong config (ví dụ: CAI)"},
-					"target":     map[string]string{"type": "string", "description": "'root' hoặc tên một related_dir"},
+					"target":     map[string]string{"type": "string", "description": "'root' (chỉ khi có một sync grant) hoặc đường dẫn tuyệt đối được cấp quyền trên Windows"},
 					"local_root": map[string]string{"type": "string", "description": "Thư mục gốc cục bộ trên Mac chứa các file"},
 					"files": map[string]any{
 						"type":        "array",
@@ -388,7 +388,7 @@ func (s *StdioServer) handleToolsList(req *JSONRPCRequest) {
 					"command":      map[string]string{"type": "string", "description": "ID lệnh build/test đã đặt tên (khi không có argv)"},
 					"argv": map[string]any{"type":"array","items":map[string]string{"type":"string"},
 						"description":"Windows Shell/executable + args, ví dụ ['powershell','-NoProfile','-Command','...']; yêu cầu Exec Grant"},
-					"workdir":map[string]string{"type":"string","description":"Windows working directory cho argv; mặc định root dự án"},
+					"workdir":map[string]string{"type":"string","description":"Windows working directory; mặc định folder duy nhất có quyền Exec"},
 					"wait_seconds": map[string]any{"type": "integer", "description": "Thời gian chờ tối đa; mặc định 600", "default": 600},
 				},
 				"required": []string{"project"},

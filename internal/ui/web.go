@@ -107,6 +107,7 @@ type WebServer struct {
 	onHostConnect       func(address string) error
 	onProjectList       func() ([]string,error)
 	onProjectSetup      func(id,workspace,mcpCommand string) error
+	windowsPicker func(context.Context, string) (string, error)
 	onProjectOpen       func(id string) error
 	onProjectSave       func() error
 	onProfileSaveAs     func(oldID,newID string) error
@@ -144,6 +145,7 @@ func NewWebServer(role string, listenAddr string) (*WebServer, error) {
 	}
 
 	ws := &WebServer{
+		windowsPicker: nativeWindowsPicker,
 		listener: ln,
 		token:    token,
 		port:     ln.Addr().(*net.TCPAddr).Port,
@@ -628,26 +630,18 @@ func (ws *WebServer) handleAppEdit(w http.ResponseWriter,r *http.Request) {
 // The browser itself cannot reveal absolute OS folder paths.
 func (ws *WebServer) handleWindowsPicker(w http.ResponseWriter,r *http.Request) {
  if !ws.checkToken(r)||r.Method!=http.MethodPost{http.Error(w,"Forbidden",http.StatusForbidden);return}
- if runtime.GOOS!="windows" || ws.state.Role!="Host (Windows)"{
-  http.Error(w,"Windows native picker unavailable",http.StatusNotImplemented);return
- }
+ ws.stateMu.RLock()
+ role := ws.state.Role
+ ws.stateMu.RUnlock()
+ if role != "Host (Windows)" {http.Error(w,"Windows native picker unavailable",http.StatusNotImplemented);return}
  kind:=r.URL.Query().Get("kind")
- var script string
- switch kind{
- case "folder":
-  script=`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; if($d.ShowDialog() -eq 'OK'){Write-Output $d.SelectedPath}`
- case "app":
-  script=`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = 'Executable (*.exe)|*.exe|All files (*.*)|*.*'; if($d.ShowDialog() -eq 'OK'){Write-Output $d.FileName}`
- default:
-  http.Error(w,"invalid picker kind",http.StatusBadRequest);return
- }
- ctx,cancel:=context.WithTimeout(r.Context(),90*time.Second)
+ if kind!="folder" && kind!="app" {http.Error(w,"invalid picker kind",http.StatusBadRequest);return}
+ ctx,cancel:=context.WithTimeout(r.Context(),5*time.Minute)
  defer cancel()
- cmd:=exec.CommandContext(ctx,"powershell.exe","-NoProfile","-STA","-WindowStyle","Hidden","-Command",script)
- output,err:=cmd.CombinedOutput()
- if err!=nil{http.Error(w,"Windows picker unavailable: "+err.Error(),http.StatusServiceUnavailable);return}
+ path,err:=ws.windowsPicker(ctx,kind)
+ if err!=nil {http.Error(w,"Windows picker unavailable: "+err.Error(),http.StatusServiceUnavailable);return}
  w.Header().Set("Content-Type","application/json")
- _=json.NewEncoder(w).Encode(map[string]string{"path":strings.TrimSpace(string(output))})
+ _=json.NewEncoder(w).Encode(map[string]string{"path":path})
 }
 
 func (ws *WebServer) handleExit(w http.ResponseWriter, r *http.Request) {

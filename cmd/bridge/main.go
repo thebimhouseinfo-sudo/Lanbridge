@@ -296,7 +296,7 @@ func runHost(args []string) {
 	// Mac can see the project ID metadata but never receives the file.
 	webUI.SetProjectHandlers(
 		func() ([]string,error) {return hostProfiles.ListIDs(false)},
-		func(id,workspace,mcpCommand string) error {
+		func(id,_,mcpCommand string) error {
 			if err:=projectconfig.ValidateID(id);err!=nil{return err}
 			// First-time project creation must NOT clone grants/program rights
 			// from another active project or legacy global state. Windows user
@@ -310,20 +310,18 @@ func runHost(args []string) {
 			var namedCommands map[string][]string
 			var mcp *projectconfig.MCPConfig
 			if old:=findProject(cfg,id);old!=nil {
-				if workspace==""{workspace=old.Root}
 				namedCommands=old.Commands
 				if old.MCP!=nil {
 					mcp=&projectconfig.MCPConfig{Transport:old.MCP.Transport,
 						Command:append([]string(nil),old.MCP.Command...),URL:old.MCP.URL}
 				}
 			}
-			if workspace==""{return errors.New("Windows workspace directory required")}
 			if mcpCommand!=""{mcp=&projectconfig.MCPConfig{
 				Transport:"stdio",Command:[]string{mcpCommand},
 			}}
 			_,err:=hostProfiles.InitializeWindows(id,projectconfig.WindowsPermissions{
 				SchemaVersion:projectconfig.SchemaVersion,ProjectID:id,
-				DisplayName:id,Workspace:workspace,Folders:folders,Programs:apps,
+				DisplayName:id,Folders:folders,Programs:apps,
 				NamedCommands:namedCommands,MCP:mcp,
 			})
 			if err!=nil{return err}
@@ -350,9 +348,7 @@ func runHost(args []string) {
 			sendClientUIState()
 			p,err:=hostProfiles.LoadWindows(id)
 			if err!=nil{return err}
-			root:=p.Workspace
-			if root==""{return fmt.Errorf("CONFIG_INVALID: project workspace missing")}
-			current:=&store.ProjectConfig{Name:id,Root:root,
+			current:=&store.ProjectConfig{Name:id,
 				Commands:p.NamedCommands}
 			if p.MCP!=nil{current.MCP=&store.MCPConfig{
 				Transport:p.MCP.Transport,Command:append([]string(nil),p.MCP.Command...),URL:p.MCP.URL,
@@ -763,6 +759,15 @@ func runHost(args []string) {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PERMISSION", "quyền execute chưa được cấp cho project này"), nil
 		}
 
+        // A default is safe only when exactly one folder has Exec permission.
+        // Shell callers can otherwise specify a workdir explicitly.
+        if req.WorkDir=="" {
+            dir,dirErr:=defaultGrantedDirectory(gate.ListGrants(),permissions.CapExecute)
+            if dirErr!=nil{return protocol.NewErrorResponse(msg.ID,"ERR_PARAMS",dirErr.Error()),nil}
+            proj.Root=dir
+        } else {
+            proj.Root=req.WorkDir
+        }
 		var job *executor.Job
 		if len(req.Argv)>0 {
 			job,err=execMgr.RunShell(proj,req.Argv,req.WorkDir)
@@ -838,8 +843,9 @@ func runHost(args []string) {
 			var sessionErrors []string
 			id:=hostSession.Snapshot().WindowsID
 			proj:=getActiveProject(id)
-			if proj!=nil && proj.MCP!=nil && gate.HasCapability(permissions.CapMCP) {
-				if _,err:=mcpMgr.Session(proj.Name,proj.Root,proj.MCP.Transport,proj.MCP.Command);err!=nil {
+            if proj!=nil && proj.MCP!=nil && gate.HasCapability(permissions.CapMCP) {
+                dir,dirErr:=mcpGrantedDirectory(gate.ListGrants(),proj.MCP.Command)
+                if dirErr!=nil {sessionErrors=append(sessionErrors,dirErr.Error())} else if _,err:=mcpMgr.Session(proj.Name,dir,proj.MCP.Transport,proj.MCP.Command);err!=nil {
 					message:=fmt.Sprintf("%s: %v",proj.Name,err)
 					sessionErrors=append(sessionErrors,message)
 				}
@@ -875,7 +881,9 @@ func runHost(args []string) {
 			return protocol.NewErrorResponse(msg.ID, "ERR_MCP", fmt.Sprintf("project '%s' không có cấu hình mcp", projName)), nil
 		}
 
-		sess, err := mcpMgr.Session(projName, proj.Root, proj.MCP.Transport, proj.MCP.Command)
+        dir,dirErr:=mcpGrantedDirectory(gate.ListGrants(),proj.MCP.Command)
+        if dirErr!=nil{return protocol.NewErrorResponse(msg.ID,"ERR_PARAMS",dirErr.Error()),nil}
+		sess, err := mcpMgr.Session(projName, dir, proj.MCP.Transport, proj.MCP.Command)
 		if err != nil {
 			return protocol.NewErrorResponse(msg.ID, "ERR_MCP", err.Error()), nil
 		}
@@ -1423,7 +1431,12 @@ func syncFilesHandlerWithProject(gate *permissions.Gatekeeper,cfg *store.HostCon
 		var targetBase string
 		switch req.Target {
 		case "root":
-			targetBase = project.Root
+            targetBase = project.Root // compatibility for legacy static projects
+            if targetBase == "" {
+                var dirErr error
+                targetBase,dirErr=defaultGrantedDirectory(gate.ListGrants(),permissions.CapSync)
+                if dirErr!=nil{return protocol.NewErrorResponse(msg.ID,"ERR_PARAMS",dirErr.Error()),nil}
+            }
 		default:
 			if filepath.IsAbs(req.Target){
 				targetBase=req.Target
@@ -2330,4 +2343,35 @@ func selectedAgentProvider(snapshot agentconfig.Snapshot) string {
 		return string(agentconfig.ProviderCodex)
 	}
 	return ""
+}
+
+// defaultGrantedDirectory never guesses when several folders share a capability.
+func defaultGrantedDirectory(grants []store.PermissionGrant, capability string) (string,error) {
+ var selected string
+ for _,grant:=range grants {
+  for _,cap:=range grant.Capabilities {
+   if cap!=capability {continue}
+   if selected!="" && selected!=grant.Path {return "",fmt.Errorf("nhiều folder có quyền %s; hãy chỉ định đường dẫn cụ thể",capability)}
+   selected=grant.Path
+   break
+  }
+ }
+ if selected=="" {return "",fmt.Errorf("chưa có folder được cấp quyền %s",capability)}
+ return selected,nil
+}
+
+// Prefer the unique granted directory containing the configured MCP executable.
+// If it cannot be identified, use a single unambiguous MCP grant.
+func mcpGrantedDirectory(grants []store.PermissionGrant, command []string) (string,error) {
+ if len(command)>0 && filepath.IsAbs(command[0]) {
+  matching:=make([]store.PermissionGrant,0)
+  for _,grant:=range grants {
+   rel,err:=filepath.Rel(grant.Path,command[0])
+   if err==nil && rel!=".." && !strings.HasPrefix(rel,".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+    matching=append(matching,grant)
+   }
+  }
+  if dir,err:=defaultGrantedDirectory(matching,permissions.CapMCP);err==nil{return dir,nil}
+ }
+ return defaultGrantedDirectory(grants,permissions.CapMCP)
 }

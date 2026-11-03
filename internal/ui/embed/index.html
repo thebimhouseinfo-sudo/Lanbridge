@@ -222,9 +222,8 @@
         <input id="projectProfileID" type="text" placeholder="Project ID" aria-label="Project ID cho setup lần đầu">
         <button class="btn-secondary" type="button" onclick="setupProjectProfile()">First-time Setup</button>
       </div>
-      <div id="windowsWorkspaceSettings" style="margin-top:10px">
-        <p class="hint">Windows workspace và executable MCP của dự án (tạo mới không cần sửa JSON):</p>
-        <input id="projectWorkspace" type="text" style="width:100%;margin-bottom:6px" placeholder="D:\Dev\MyApp">
+      <div id="windowsMCPSettings" style="margin-top:10px">
+        <p class="hint">Executable MCP của dự án (tùy chọn):</p>
         <input id="projectMCPCommand" type="text" style="width:100%" placeholder="D:\Dev\MyApp\mcp.exe (tùy chọn)">
       </div>
       <div class="btn-group" style="margin-top:8px">
@@ -483,7 +482,7 @@
         ? 'PROJECT_READY — ' + (s.project_id || '')
         : (s.project_error || 'CONFIG_NOT_OPEN — hai máy cần mở đúng Project ID');
       document.getElementById('macBlacklistSection').style.display = isClient ? 'block' : 'none';
-      document.getElementById('windowsWorkspaceSettings').style.display = isClient ? 'none' : 'block';
+      document.getElementById('windowsMCPSettings').style.display = isClient ? 'none' : 'block';
       document.getElementById('profileSaveButton').style.display = isClient ? 'none' : 'inline-block';
       document.getElementById('profileSaveButton').disabled = !s.project_id;
       if (!isClient) return;
@@ -514,7 +513,6 @@
       if (!project_id) {alert('Nhập Project ID trước khi setup.'); return;}
       try {
         await projectAction('setup', {project_id,
-          workspace: document.getElementById('projectWorkspace').value.trim(),
           mcp_command: document.getElementById('projectMCPCommand').value.trim()
         });
         document.getElementById('projectProfileAction').textContent = 'Đã lưu config cục bộ. Hãy Open đúng project trên cả hai máy.';
