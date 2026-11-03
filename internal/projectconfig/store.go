@@ -126,6 +126,24 @@ func (s *Store) LoadWindows(id string) (WindowsPermissions,error) {
  return p,validateWindows(id,&p)
 }
 
+// InitializeWindows is a first-setup action initiated only from Windows UI.
+// It must NOT overwrite a user's existing saved permissions.
+func (s *Store) InitializeWindows(id string, p WindowsPermissions) (bool,error) {
+ s.mu.Lock();defer s.mu.Unlock()
+ path,err:=s.FilePath(id,false);if err!=nil{return false,err}
+ if p.Folders==nil{p.Folders=[]FolderGrant{}}
+ if err=validateWindows(id,&p);err!=nil{return false,err}
+ if err=os.MkdirAll(filepath.Dir(path),0700);err!=nil{return false,err}
+ data,err:=json.MarshalIndent(p,"","  ");if err!=nil{return false,err}
+ file,err:=os.OpenFile(path,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ if errors.Is(err,os.ErrExist){return false,fmt.Errorf("CONFIG_ALREADY_EXISTS: use Save on existing profile")}
+ if err!=nil{return false,err}
+ if _,err=file.Write(append(data,'\n'));err!=nil {_=file.Close();_=os.Remove(path);return false,err}
+ if err=file.Sync();err!=nil {_=file.Close();_=os.Remove(path);return false,err}
+ if err=file.Close();err!=nil{return false,err}
+ return true,nil
+}
+
 // InitializeMacEmpty is called by Mac app's FIRST-TIME project setup only,
 // never by config.load. O_EXCL ensures existing rules are never reset.
 func (s *Store) InitializeMacEmpty(id string) (bool,error) {
