@@ -545,7 +545,7 @@ func (s *StdioServer) sendChatToBridge(text string) error {
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
+		_, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
 		if readErr != nil {
 			return fmt.Errorf("chat send failed with HTTP %d and response read error: %w", response.StatusCode, readErr)
 		}
