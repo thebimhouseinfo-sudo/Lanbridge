@@ -112,7 +112,8 @@ func (g *Gatekeeper) PendingRequests() []PermissionRequest {
 	return requests
 }
 
-// RespondRequest persists the Windows user's ACTUAL grant. The host may grant\n// more or fewer capabilities than the Mac requested.
+// RespondRequest persists the Windows user's ACTUAL grant. The host may grant
+// more or fewer capabilities than the Mac requested.
 func (g *Gatekeeper) RespondRequest(id string, approved bool, capabilities []string) error {
 	g.pendingMu.Lock()
 	pending, exists := g.pending[id]
