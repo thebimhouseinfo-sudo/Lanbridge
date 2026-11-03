@@ -355,6 +355,11 @@ func runHost(args []string) {
 			}
 			if err:=gate.ReplaceGrants(grants);err!=nil{return err}
 			previousID:=hostSession.Snapshot().WindowsID
+			if previousID!="" && previousID!=id {
+				// Switching projects must not leave the old project's jobs
+				// executing under a different active permission profile.
+				execMgr.CancelAll()
+			}
 			approvedApps:=make([]store.AppConfig,0,len(p.Programs))
 			appRights:=make([]appcontrol.ActionPermissions,0,len(p.Programs))
 			for _,a:=range p.Programs {
@@ -778,8 +783,9 @@ func runHost(args []string) {
 		}
 
 		job := execMgr.GetJob(req.JobID)
-		if job == nil {
-			return protocol.NewErrorResponse(msg.ID, "ERR_JOB", fmt.Sprintf("job '%s' not found", req.JobID)), nil
+		if job == nil || getActiveProject(job.ProjectID)==nil {
+			return protocol.NewErrorResponse(msg.ID, "ERR_PROJECT",
+				"command result is not accessible outside the currently opened project"), nil
 		}
 
 		status, _ := job.State()
