@@ -1399,6 +1399,17 @@ func forwardAgentMCPTool(client *transport.Client, toolName string, args map[str
 		messageType = protocol.TypeExecStart
 	case "command_result":
 		messageType = protocol.TypeExecResult
+	case "maintenance_info","maintenance_list","maintenance_read","maintenance_sync_files":
+		messageType=protocol.TypeMaintenance
+		action:=map[string]string{
+			"maintenance_info":"info","maintenance_list":"list",
+			"maintenance_read":"read","maintenance_sync_files":"sync",
+		}[toolName]
+		maintenancePayload:=map[string]any{"action":action}
+		for _,key:=range []string{"path","offset","limit","files"}{
+			if value,ok:=args[key];ok{maintenancePayload[key]=value}
+		}
+		payload=maintenancePayload
 	default:
 		messageType = protocol.TypeMCPCall
 		payload = map[string]any{
@@ -1442,6 +1453,13 @@ func forwardAgentMCPTool(client *transport.Client, toolName string, args map[str
 		return nil, fmt.Errorf("decode MCP tool response: %w", err)
 	}
 	return result, nil
+}
+
+func isMaintenanceMCPTool(name string) bool {
+ switch name{
+ case "maintenance_info","maintenance_list","maintenance_read","maintenance_sync_files":return true
+ }
+ return false
 }
 
 func isQualifiedProjectTool(toolName string) bool {
@@ -2186,14 +2204,15 @@ func runClient(args []string) {
 		}
 		// A missing/unloaded blacklist MUST NOT silently become an empty
 		// deny list. Project tools and operations need both config files.
-		if toolName!="request_access" && toolName!="chat_send" {
+		if toolName!="request_access" && toolName!="chat_send" && !isMaintenanceMCPTool(toolName) {
 			id,blacklist,ready:=getMacProfile()
 			if err:=authorizeMacProjectCall(id,blacklist,ready,toolName,args);err!=nil{
 				return nil,err
 			}
 		}
 		switch toolName {
-		case "request_access", "list_dir", "file_info", "read_file", "sync_files_batch", "run_command", "command_result":
+		case "request_access", "list_dir", "file_info", "read_file", "sync_files_batch", "run_command", "command_result",
+		     "maintenance_info","maintenance_list","maintenance_read","maintenance_sync_files":
 		default:
 			if !isQualifiedProjectTool(toolName) {
 				return nil, fmt.Errorf("MCP tool %q is not available", toolName)
