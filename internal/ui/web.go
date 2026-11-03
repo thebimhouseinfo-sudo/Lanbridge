@@ -108,6 +108,7 @@ type WebServer struct {
 	onProjectList       func() ([]string,error)
 	onProjectSetup      func(id string) error
 	onProjectOpen       func(id string) error
+	onProjectSave       func() error
 	onBlacklistLock     func(locked bool) error
 	onBlacklistEdit     func(entries []projectconfig.Rule) error
 	onPermissionRespond func(id string, approved bool, capabilities []string) error
@@ -169,6 +170,10 @@ func (ws *WebServer) SetPairCodeHandler(onSubmit func(code string) error) {
 // SetProjectHandlers routes local profile actions to each machine's own
 // App Data. On Windows only the human UI opens permissions; Mac may also
 // expose an existing-only read-only Open to the local agent.
+func (ws *WebServer) SetProjectSaveHandler(save func() error) {
+ ws.onProjectSave=save
+}
+
 func (ws *WebServer) SetProjectHandlers(
  list func() ([]string,error),
  setup func(string) error,
@@ -523,6 +528,8 @@ func (ws *WebServer) handleProjectAction(w http.ResponseWriter,r *http.Request) 
   if ws.onProjectSetup==nil {err=errors.New("project setup unavailable")} else {err=ws.onProjectSetup(req.ProjectID)}
  case "open":
   if ws.onProjectOpen==nil {err=errors.New("project open unavailable")} else {err=ws.onProjectOpen(req.ProjectID)}
+ case "save":
+  if ws.onProjectSave==nil {err=errors.New("Windows project save unavailable")} else {err=ws.onProjectSave()}
  case "lock","unlock":
   if ws.onBlacklistLock==nil {err=errors.New("Mac blacklist UI unavailable")} else {err=ws.onBlacklistLock(req.Action=="lock")}
  case "edit":
