@@ -298,18 +298,13 @@ func runHost(args []string) {
 		func() ([]string,error) {return hostProfiles.ListIDs(false)},
 		func(id,workspace,mcpCommand string) error {
 			if err:=projectconfig.ValidateID(id);err!=nil{return err}
-			folders:=make([]projectconfig.FolderGrant,0)
-			for _,g:=range gate.ListGrants() {
-				folders=append(folders,projectconfig.FolderGrant{
-					Path:g.Path,Capabilities:append([]string(nil),g.Capabilities...),
-				})
-			}
-			apps:=make([]projectconfig.ProgramGrant,0,len(cfg.Apps))
-			for _,app:=range cfg.Apps {
-				apps=append(apps,projectconfig.ProgramGrant{
-					Name:app.Name,Executable:app.Path,
-				})
-			}
+			// First-time project creation must NOT clone grants/program rights
+			// from another active project or legacy global state. Windows user
+			// explicitly grants those in this project's UI after opening it.
+			folders:=[]projectconfig.FolderGrant{}
+			apps:=[]projectconfig.ProgramGrant{}
+			// Legacy project command/MCP definitions are only metadata
+			// candidates; no permissions transfer without Windows choice.
 			// Legacy config values are migration defaults only; brand-new
 			// Windows repositories can be selected directly in this UI.
 			var namedCommands map[string][]string
