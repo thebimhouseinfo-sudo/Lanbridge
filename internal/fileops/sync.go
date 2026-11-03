@@ -26,8 +26,24 @@ type SyncResult struct {
 	Status  string `json:"status"` // "ok" or error string
 }
 
-// SyncFiles atomically writes a batch of files to the target directory after verifying permissions and limits
-func SyncFiles(gate *permissions.Gatekeeper, targetBaseDir string, files []SyncItem, maxSyncMB int) ([]SyncResult, error) {
+// SyncFiles uses Windows's actual folder grant as the sole authorization
+// for ordinary project Sync. Maintenance uses a distinct paired-source
+// authorizer; it never injects synthetic grants into the project.
+func SyncFiles(gate *permissions.Gatekeeper,targetBaseDir string,files []SyncItem,maxSyncMB int)([]SyncResult,error){
+ return SyncFilesWithResolver(files,maxSyncMB,func(rel string)(string,error){
+  target,err:=permissions.Resolve(targetBaseDir,rel)
+  if err!=nil{return "",fmt.Errorf("ERR_PERMISSION_DENIED: %w",err)}
+  resolved,err:=gate.ResolveAccess(target,permissions.CapSync)
+  if err!=nil{return "",fmt.Errorf("%w for file %s",err,rel)}
+  return resolved,nil
+ })
+}
+
+// SyncFilesWithResolver reuses the atomic writer and locked-target checks for
+// a caller-supplied, independently enforced permission boundary.
+func SyncFilesWithResolver(files []SyncItem,maxSyncMB int,
+ resolver func(relative string)(string,error))([]SyncResult,error){
+ if resolver==nil{return nil,errors.New("ERR_PERMISSION_DENIED: no authorized target resolver")}
 	if maxSyncMB <= 0 {
 		maxSyncMB = 5
 	}
@@ -49,15 +65,8 @@ func SyncFiles(gate *permissions.Gatekeeper, targetBaseDir string, files []SyncI
 		if file.RelPath == "" || filepath.Clean(file.RelPath) == "." {
 			return nil, errors.New("ERR_PARAMS: file path must name a file")
 		}
-		resolvedPath, err := permissions.Resolve(targetBaseDir, file.RelPath)
-		if err != nil {
-			return nil, fmt.Errorf("ERR_PERMISSION_DENIED: %w", err)
-		}
-
-		resolvedPath, err = gate.ResolveAccess(resolvedPath, permissions.CapSync)
-		if err != nil {
-			return nil, fmt.Errorf("%w for file %s", err, file.RelPath)
-		}
+		resolvedPath,err:=resolver(file.RelPath)
+		if err!=nil{return results,err}
 		configDir,err:=store.GetConfigDir()
 		if err!=nil{return nil,err}
 		if projectconfig.IsBridgePrivatePath(resolvedPath,configDir) {
