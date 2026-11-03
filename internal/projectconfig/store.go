@@ -195,3 +195,22 @@ func (s *Store) UpdateMac(id string, entries []Rule) error {
  data,err:=json.MarshalIndent(update,"","  ");if err!=nil{return err}
  return writeAtomic(path,append(data,'\n'))
 }
+
+ // ListIDs lists existing local project files only; it never initializes
+ // profiles and never queries the other machine.
+func (s *Store) ListIDs(mac bool) ([]string,error) {
+ s.mu.Lock();defer s.mu.Unlock()
+ root:=filepath.Join(s.base,"profiles")
+ dirs,err:=os.ReadDir(root)
+ if errors.Is(err,os.ErrNotExist){return []string{},nil}
+ if err!=nil{return nil,err}
+ ids:=make([]string,0)
+ for _,entry:=range dirs {
+  if !entry.IsDir() || ValidateID(entry.Name())!=nil {continue}
+  file:="permissions.json"
+  if mac{file="command-blacklist.json"}
+  st,e:=os.Stat(filepath.Join(root,entry.Name(),file))
+  if e==nil && st.Mode().IsRegular(){ids=append(ids,entry.Name())}
+ }
+ return ids,nil
+}
