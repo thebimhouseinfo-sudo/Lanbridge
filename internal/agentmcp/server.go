@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/maintenance"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/store"
 )
@@ -309,6 +310,34 @@ func (s *StdioServer) handleToolsList(req *JSONRPCRequest) {
 			},
 		},
 		{
+			Name:"maintenance_info",
+			Description:"Xem quyền Read+Sync source LAN Bridge đã được Windows chọn cho thiết bị paired, môi trường không bí mật và project/grant status; không cần PROJECT_READY.",
+			InputSchema:map[string]any{"type":"object"},
+		},
+		{
+			Name:"maintenance_list",
+			Description:"Liệt kê source LAN Bridge trên Windows đã cấp bảo trì; không được đọc Bridge config, secrets hoặc .git.",
+			InputSchema:map[string]any{"type":"object","properties":map[string]any{
+				"path":map[string]string{"type":"string","description":"Source-relative folder, mặc định ."}}},
+		},
+		{
+			Name:"maintenance_read",
+			Description:"Đọc file source LAN Bridge Windows đã cấp, trả base64 và next_offset; giới hạn 1MB/lần.",
+			InputSchema:map[string]any{"type":"object","properties":map[string]any{
+				"path":map[string]string{"type":"string"},
+				"offset":map[string]any{"type":"integer","minimum":0},
+				"limit":map[string]any{"type":"integer","minimum":1,"maximum":1048576},
+			},"required":[]string{"path"}},
+		},
+		{
+			Name:"maintenance_sync_files",
+			Description:"Sync on-demand file source đã sửa trên Mac vào Windows LAN Bridge source. Không tạo prompt cho mỗi lần sync; không cho phép config, .env, token hoặc binary.",
+			InputSchema:map[string]any{"type":"object","properties":map[string]any{
+				"local_root":map[string]string{"type":"string","description":"Thư mục source trên Mac, mặc định working directory"},
+				"files":map[string]any{"type":"array","items":map[string]string{"type":"string"}},
+			},"required":[]string{"files"}},
+		},
+		{
 			Name:        "request_access",
 			Description: "Yêu cầu Windows user cấp quyền đọc hoặc sync thư mục",
 			InputSchema: map[string]any{
@@ -441,7 +470,8 @@ func (s *StdioServer) handleToolsCall(req *JSONRPCRequest) {
 	}
 
 	switch callParams.Name {
-	case "bridge_status", "config_list", "config_current", "config_load", "blacklist_edit", "request_access", "list_dir", "file_info", "read_file", "sync_files", "run_command", "command_result", "chat_send":
+	case "bridge_status", "config_list", "config_current", "config_load", "blacklist_edit", "request_access", "list_dir", "file_info", "read_file", "sync_files", "run_command", "command_result", "chat_send",
+     "maintenance_info","maintenance_list","maintenance_read","maintenance_sync_files":
 	default:
 		if !isProjectToolName(callParams.Name) {
 			s.sendToolError(req.ID, fmt.Sprintf("Tool %q is not available", callParams.Name))
@@ -463,8 +493,8 @@ func (s *StdioServer) handleToolsCall(req *JSONRPCRequest) {
 		s.handleAgentChatSend(req.ID, callParams.Arguments)
 		return
 	}
-	if callParams.Name == "sync_files" {
-		s.handleLocalSyncCall(req.ID, callParams.Arguments)
+	if callParams.Name == "sync_files" || callParams.Name == "maintenance_sync_files" {
+		s.handleLocalSyncCall(req.ID,callParams.Arguments,callParams.Name=="maintenance_sync_files")
 		return
 	}
 	if callParams.Name == "run_command" || callParams.Name == "command_result" {
@@ -638,7 +668,7 @@ func isProjectToolName(name string) bool {
 		name != "__list_tools" && name != "__tools_changed"
 }
 
-func (s *StdioServer) handleLocalSyncCall(reqID any, args map[string]any) {
+func (s *StdioServer) handleLocalSyncCall(reqID any, args map[string]any, maintenanceSync bool) {
 	localRoot := ""
 	if rawRoot, exists := args["local_root"]; exists {
 		var ok bool
@@ -658,7 +688,7 @@ func (s *StdioServer) handleLocalSyncCall(reqID any, args map[string]any) {
 	}
 	project, projectOK := args["project"].(string)
 	target, targetOK := args["target"].(string)
-	if !projectOK || project == "" || !targetOK || target == "" {
+	if !maintenanceSync && (!projectOK || project == "" || !targetOK || target == "") {
 		s.sendToolError(reqID, "project and target are required")
 		return
 	}
@@ -681,6 +711,10 @@ func (s *StdioServer) handleLocalSyncCall(reqID any, args map[string]any) {
 		relPath, ok := rf.(string)
 		if !ok || relPath == "" {
 			s.sendToolError(reqID, "every files entry must be a non-empty relative path")
+			return
+		}
+		if maintenanceSync && maintenance.IsPrivateSourcePath(relPath){
+			s.sendToolError(reqID,"ERR_MAINTENANCE_DENIED: protected source path")
 			return
 		}
 		fullLocalPath, err := resolveLocalSyncPath(root, relPath)
@@ -706,6 +740,10 @@ func (s *StdioServer) handleLocalSyncCall(reqID any, args map[string]any) {
 		"files":   items,
 	}
 
+	if maintenanceSync {
+		s.forwardToBridgeClient(reqID,"maintenance_sync_files",map[string]any{"files":items})
+		return
+	}
 	s.forwardToBridgeClient(reqID, "sync_files_batch", forwardPayload)
 }
 
