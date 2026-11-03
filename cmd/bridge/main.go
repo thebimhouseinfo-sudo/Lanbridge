@@ -1578,10 +1578,21 @@ func runClient(args []string) {
 		webUI.NotifyMCPToolsChanged()
 	}
 	openMacProfile:=func(id string) error {
-		// LoadMac is read-only and never creates a missing file.
-		loaded,err:=macProfiles.LoadMac(id);if err!=nil{return err}
+		// Switching/reloading must fail closed: a failed attempt to open an
+		// absent blacklist must never leave a previously loaded project
+		// accidentally active on either side of the Bridge.
+		clearMacProfile()
 		clientMu.Lock();client:=activeClient;clientMu.Unlock()
 		if client==nil || !client.IsConnected(){return errors.New("connect to Windows before opening project blacklist")}
+		closePayload,_:=json.Marshal(map[string]any{"project_id":"","loaded":false})
+		closed,err:=client.RoundTrip(&protocol.Message{
+			ID:fmt.Sprintf("profile-unload-%d",time.Now().UnixNano()),
+			Type:protocol.TypeProjectStatus,Payload:closePayload,
+		},15*time.Second)
+		if err!=nil{return err}
+		if closed.Error!=nil{return closed.Error}
+		// LoadMac is read-only and never creates a missing file.
+		loaded,err:=macProfiles.LoadMac(id);if err!=nil{return err}
 		payload,_:=json.Marshal(map[string]any{"project_id":id,"loaded":true})
 		resp,err:=client.RoundTrip(&protocol.Message{
 			ID:fmt.Sprintf("profile-%d",time.Now().UnixNano()),
