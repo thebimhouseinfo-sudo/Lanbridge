@@ -26,6 +26,7 @@ import (
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/appcontrol"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/executor"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/fileops"
+ "github.com/thebimhouseinfo-sudo/testbridge/internal/maintenance"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/mcpfwd"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/permissions"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
@@ -153,6 +154,10 @@ func runHost(args []string) {
 		os.Exit(1)
 	}
 	hostSession := &projectconfig.Session{}
+	// Source maintenance is pairing-scoped and persists independently of
+	// project profiles, which may be missing or damaged during repair.
+	maintenanceSvc,maintenanceErr:=maintenance.New(filepath.Join(profileDir,"maintenance.json"),profileDir)
+	if maintenanceErr!=nil{slog.Warn("Bridge source maintenance state needs Windows reprovision","error",maintenanceErr)}
 	var activeProjectMu sync.RWMutex
 	var activeProject *store.ProjectConfig
 	getActiveProject := func(id string) *store.ProjectConfig {
@@ -198,6 +203,30 @@ func runHost(args []string) {
 		os.Exit(1)
 	}
 	appManager := appcontrol.NewManager(cfg.Apps)
+	updateMaintenanceUI:=func(){
+		status:=maintenanceSvc.Status(pairedClientFingerprint.Load().(string))
+		webUI.UpdateState(func(st *ui.UIState){
+			st.MaintenanceSource=status.SourceRoot
+			st.MaintenanceEnabled=status.Enabled
+			st.MaintenanceAvailable=status.Available
+		})
+	}
+	webUI.SetMaintenanceHandler(func(action,root string)error{
+		var err error
+		switch action{
+		case "select":
+			err=maintenanceSvc.Configure(root,pairedClientFingerprint.Load().(string))
+		case "enable":
+			err=maintenanceSvc.SetEnabled(true)
+		case "revoke":
+			err=maintenanceSvc.SetEnabled(false)
+		default:
+			return errors.New("unknown Windows maintenance action")
+		}
+		if err==nil{updateMaintenanceUI()}
+		return err
+	})
+	updateMaintenanceUI()
 
 	webUI.UpdateState(func(s *ui.UIState) {
 		s.Connected = false
@@ -262,6 +291,51 @@ func runHost(args []string) {
 	registerReadHandlers(server, gate)
 	server.RegisterHandler(protocol.TypeFileSync,
 		syncFilesHandlerWithProject(gate,cfg,getActiveProject))
+	// Maintenance is a narrow, authenticated exception to PROJECT_READY.
+	// All regular Read/Sync/Exec/MCP still use the existing project guard.
+	server.RegisterHandler(protocol.TypeMaintenance,func(msg *protocol.Message)(*protocol.Message,error){
+		var req struct{
+			Action string `json:"action"`
+			Path string `json:"path"`
+			Offset int64 `json:"offset"`
+			Limit int `json:"limit"`
+			Files []fileops.SyncItem `json:"files"`
+		}
+		if err:=json.Unmarshal(msg.Payload,&req);err!=nil {
+			return protocol.NewErrorResponse(msg.ID,"ERR_PARAMS","invalid maintenance request"),nil
+		}
+		peer:=msg.PeerFingerprint
+		var result any
+		switch req.Action{
+		case "info":
+			st:=maintenanceSvc.Status(peer)
+			if !st.Enabled{return protocol.NewResponse(msg.ID,protocol.TypeMaintenance,st)}
+			result=map[string]any{
+				"maintenance":st,
+				"windows_os":runtime.GOOS,
+				"windows_arch":runtime.GOARCH,
+				"go_runtime":runtime.Version(),
+				"project_id":hostSession.Snapshot().WindowsID,
+				"project_ready":hostSession.Snapshot().Ready,
+				"actual_grants":gate.ListGrants(),
+			}
+		case "list":
+			entries,err:=maintenanceSvc.List(peer,req.Path)
+			if err!=nil{return protocol.NewErrorResponse(msg.ID,"ERR_MAINTENANCE",err.Error()),nil}
+			result=map[string]any{"entries":entries}
+		case "read":
+			data,more,err:=maintenanceSvc.Read(peer,req.Path,req.Offset,req.Limit)
+			if err!=nil{return protocol.NewErrorResponse(msg.ID,"ERR_MAINTENANCE",err.Error()),nil}
+			result=map[string]any{"data":data,"next_offset":req.Offset+int64(len(data)),"more":more}
+		case "sync":
+			results,err:=maintenanceSvc.Sync(peer,req.Files,cfg.MaxSyncMB)
+			if err!=nil{return protocol.NewErrorResponse(msg.ID,"ERR_MAINTENANCE",err.Error()),nil}
+			result=map[string]any{"results":results}
+		default:
+			return protocol.NewErrorResponse(msg.ID,"ERR_PARAMS","unknown maintenance action"),nil
+		}
+		return protocol.NewResponse(msg.ID,protocol.TypeMaintenance,result)
+	})
 	sendClientUIState := func() {
 		if !hostConnected.Load() || pairedClientFingerprint.Load().(string) == "" {
 			return
