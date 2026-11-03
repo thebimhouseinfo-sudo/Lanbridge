@@ -1792,11 +1792,56 @@ func runClient(args []string) {
 		address := activeTarget
 		clientMu.Unlock()
 		if toolName == "bridge_status" {
+			id,_,ready:=getMacProfile()
 			return map[string]any{
 				"connected": client != nil && client.IsConnected(),
 				"host":      address,
 				"paired":    pairedHostFingerprint.Load().(string) != "",
+				"project_id":id,
+				"project_ready":ready,
 			}, nil
+		}
+		// Local agent Config tools have no Windows file-system access.
+		// Open is read-only: only the Mac app Setup can create empty files.
+		switch toolName {
+		case "config_list":
+			ids,err:=macProfiles.ListIDs(true)
+			if err!=nil{return nil,err}
+			return map[string]any{"projects":ids},nil
+		case "config_current":
+			id,b,ready:=getMacProfile()
+			return map[string]any{"project_id":id,"loaded":id!="","ready":ready,"entries":len(b.Entries)},nil
+		case "config_load":
+			id,_:=args["project_id"].(string)
+			if err:=openMacProfile(id);err!=nil{return nil,err}
+			_,b,ready:=getMacProfile()
+			return map[string]any{"project_id":id,"loaded":true,"ready":ready,"entries":len(b.Entries)},nil
+		case "blacklist_edit":
+			id,_,_:=getMacProfile()
+			if id=="" {return nil,projectconfig.ErrNotOpen}
+			raw,ok:=args["entries"]
+			if !ok {return nil,errors.New("blacklist entries required")}
+			encoded,err:=json.Marshal(raw);if err!=nil{return nil,err}
+			var entries []projectconfig.Rule
+			if err:=json.Unmarshal(encoded,&entries);err!=nil{return nil,err}
+			// The human must have manually Unlocked in Mac UI.
+			if err:=macProfiles.UpdateMac(id,entries);err!=nil{return nil,err}
+			updated,err:=macProfiles.LoadMac(id);if err!=nil{return nil,err}
+			macProfileMu.Lock();macBlacklist=updated;macProfileMu.Unlock()
+			webUI.UpdateState(func(st *ui.UIState){st.BlacklistEntries=append([]projectconfig.Rule(nil),updated.Entries...)})
+			return map[string]any{"updated":true,"entries":len(updated.Entries)},nil
+		}
+		// A missing/unloaded blacklist MUST NOT silently become an empty
+		// deny list. Project tools and operations need both config files.
+		if toolName!="request_access" && toolName!="chat_send" {
+			id,blacklist,ready:=getMacProfile()
+			if !ready {return nil,projectconfig.ErrNotOpen}
+			if isQualifiedProjectTool(toolName) && mcpfwd.ExtractProject(toolName)!=id {
+				return nil,projectconfig.ErrMismatch
+			}
+			if projectconfig.Denies(blacklist,toolName,args){
+				return nil,fmt.Errorf("ERR_COMMAND_BLACKLISTED: %s",toolName)
+			}
 		}
 		switch toolName {
 		case "request_access", "list_dir", "file_info", "read_file", "sync_files_batch", "run_command", "command_result":
@@ -1810,6 +1855,8 @@ func runClient(args []string) {
 		}
 		return forwardAgentMCPTool(client, toolName, args)
 	}, func() ([]map[string]any, error) {
+		_,_,ready:=getMacProfile()
+		if !ready {return nil,projectconfig.ErrNotOpen}
 		clientMu.Lock()
 		client := activeClient
 		clientMu.Unlock()
