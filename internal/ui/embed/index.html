@@ -227,6 +227,11 @@
         <input id="projectWorkspace" type="text" style="width:100%;margin-bottom:6px" placeholder="D:\Dev\MyApp">
         <input id="projectMCPCommand" type="text" style="width:100%" placeholder="D:\Dev\MyApp\mcp.exe (tùy chọn)">
       </div>
+      <div class="btn-group" style="margin-top:8px">
+        <button class="btn-secondary" type="button" onclick="manageProjectProfile('save_as')">Save As</button>
+        <button class="btn-secondary" type="button" onclick="manageProjectProfile('rename')">Rename</button>
+        <button class="btn-danger" type="button" onclick="manageProjectProfile('delete')">Delete</button>
+      </div>
       <p id="projectProfileAction" class="form-status" role="status"></p>
       <div id="macBlacklistSection" style="display:none; margin-top:12px">
         <h3>Command Blacklist (chỉ lưu trên Mac)</h3>
@@ -529,6 +534,21 @@
         document.getElementById('projectProfileAction').textContent = 'Windows Permission Config đã lưu.';
       } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
     }
+    async function manageProjectProfile(action) {
+      const project_id = document.getElementById('projectProfileSelect').value;
+      const new_id = document.getElementById('projectProfileID').value.trim();
+      if (!project_id) {alert('Chọn Config đã lưu trước.');return;}
+      if (action !== 'delete' && !new_id) {alert('Nhập Project ID mới cho Save As/Rename.');return;}
+      if ((action === 'delete' || action === 'rename') &&
+          !confirm('Thao tác ' + action + ' trên config cục bộ ' + project_id +
+            '. Config trên máy kia KHÔNG tự thay đổi. Tiếp tục?')) return;
+      try {
+        await projectAction(action,{project_id,new_id});
+        document.getElementById('projectProfileAction').textContent =
+          'Đã ' + action + ' config cục bộ. Hai máy cần mở đúng Project ID mới để làm việc.';
+      } catch(e) {document.getElementById('projectProfileAction').textContent = e.message;}
+    }
+
     async function toggleBlacklistLock() {
       try {
         await projectAction(currentProfileState.blacklist_locked ? 'unlock' : 'lock');
