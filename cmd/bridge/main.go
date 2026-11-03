@@ -28,6 +28,7 @@ import (
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/fileops"
  "github.com/thebimhouseinfo-sudo/testbridge/internal/maintenance"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/mcpfwd"
+ "github.com/thebimhouseinfo-sudo/testbridge/internal/mcpsecret"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/permissions"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
 	"github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
@@ -153,6 +154,8 @@ func runHost(args []string) {
 		slog.Error("Failed to initialize profile store", "error", err)
 		os.Exit(1)
 	}
+	secretStore,err:=mcpsecret.New(profileDir)
+	if err!=nil{slog.Error("Windows MCP secret store unavailable","error",err)}
 	hostSession := &projectconfig.Session{}
 	// Source maintenance is pairing-scoped and persists independently of
 	// project profiles, which may be missing or damaged during repair.
@@ -372,6 +375,66 @@ func runHost(args []string) {
 		sendClientUIState()
 	}
 	var mcpMgr *mcpfwd.Manager
+	webUI.SetProjectMCPConfigHandler(func(action,id,transport string,argv []string,endpoint,authorization string)(map[string]any,error){
+		if err:=projectconfig.ValidateID(id);err!=nil{return nil,projectconfig.ErrInvalid}
+		p,err:=hostProfiles.LoadWindows(id)
+		if err!=nil{return nil,err}
+		if secretStore==nil{return nil,mcpsecret.ErrUnavailable}
+		if transport!="stdio"&&transport!="streamable_http"{return nil,errors.New("ERR_MCP_TRANSPORT_UNSUPPORTED")}
+		if transport=="stdio" && (len(argv)==0||argv[0]==""){return nil,errors.New("ERR_MCP_STDIO_ARGV_REQUIRED")}
+		if transport=="streamable_http" {
+			if endpoint==""{
+				saved,err:=secretStore.Load(id)
+				if err!=nil{return nil,errors.New("ERR_MCP_ENDPOINT_NOT_CONFIGURED")}
+				endpoint=saved.Endpoint
+				if authorization==""{authorization=saved.Authorization}
+			}
+			if err:=mcpfwd.ValidateHTTPEndpoint(endpoint);err!=nil{return nil,err}
+		}
+		switch action {
+		case "test":
+			tools,err:=mcpfwd.Probe(id,p.Workspace,transport,argv,endpoint,authorization)
+			if err!=nil{
+				if transport=="streamable_http"{return nil,errors.New("ERR_MCP_CONNECTION_TEST_FAILED")}
+				return nil,fmt.Errorf("ERR_MCP_STDIO_TEST_FAILED")
+			}
+			return map[string]any{"ok":true,"transport":transport,"tool_count":len(tools)},nil
+		case "save":
+			next:=projectconfig.MCPConfig{Transport:transport}
+			if transport=="stdio"{next.Command=append([]string(nil),argv...)}
+			var prior mcpsecret.Value
+			hadPrior:=false
+			if transport=="streamable_http" {
+				prior,e:=secretStore.Load(id);hadPrior=e==nil
+				if err:=secretStore.Save(id,mcpsecret.Value{Endpoint:endpoint,Authorization:authorization});err!=nil{
+					return nil,mcpsecret.ErrUnavailable
+				}
+			}
+			if err:=hostProfiles.UpdateMCP(id,next);err!=nil{
+				if transport=="streamable_http"{
+					if hadPrior{_ = secretStore.Save(id,prior)}else{_ = secretStore.Delete(id)}
+				}
+				return nil,err
+			}
+			if transport=="stdio"{_ = secretStore.Delete(id)}
+			activeProjectMu.Lock()
+			if activeProject!=nil && activeProject.Name==id {
+				activeProject.MCP=&store.MCPConfig{Transport:next.Transport,
+					Command:append([]string(nil),next.Command...)}
+			}
+			activeProjectMu.Unlock()
+			if mcpMgr!=nil{mcpMgr.CloseProject(id)}
+			webUI.UpdateState(func(st *ui.UIState){
+				if st.ProjectID==id{
+					st.ProjectMCPTransport=transport
+					st.ProjectMCPEndpointSet=secretStore.Exists(id)
+				}
+			})
+			return map[string]any{"ok":true,"transport":transport,"tool_count":0},nil
+		default:
+			return nil,errors.New("ERR_MCP_CONFIG_ACTION")
+		}
+	})
 	// Permission files are created/selected only by Windows human UI.
 	// Mac can see the project ID metadata but never receives the file.
 	webUI.SetProjectHandlers(
@@ -459,6 +522,8 @@ func runHost(args []string) {
 			status:=hostSession.Snapshot()
 			webUI.UpdateState(func(st *ui.UIState){
 				st.ProjectID=id;st.ProjectReady=status.Ready;st.ProjectError=status.Error
+				if p.MCP!=nil{st.ProjectMCPTransport=p.MCP.Transport}else{st.ProjectMCPTransport=""}
+				st.ProjectMCPEndpointSet=secretStore!=nil && secretStore.Exists(id)
 			})
 			updatePermissionUI()
 			return nil
