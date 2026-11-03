@@ -295,7 +295,7 @@ func runHost(args []string) {
 					Name:app.Name,Executable:app.Path,
 				})
 			}
-			err:=hostProfiles.SaveWindows(id,projectconfig.WindowsPermissions{
+			_,err:=hostProfiles.InitializeWindows(id,projectconfig.WindowsPermissions{
 				SchemaVersion:projectconfig.SchemaVersion,ProjectID:id,
 				DisplayName:id,Folders:folders,Programs:apps,
 			})
@@ -325,6 +325,27 @@ func runHost(args []string) {
 		},
 		nil,nil,
 	)
+	// Saving the current Windows grants is a separate intentional UI action.
+	// It cannot be triggered by the Mac agent and never changes the Mac file.
+	webUI.SetProjectSaveHandler(func() error {
+		id:=hostSession.Snapshot().WindowsID
+		if id=="" {return projectconfig.ErrNotOpen}
+		p,err:=hostProfiles.LoadWindows(id);if err!=nil{return err}
+		p.Folders=make([]projectconfig.FolderGrant,0)
+		for _,g:=range gate.ListGrants(){
+			p.Folders=append(p.Folders,projectconfig.FolderGrant{
+				Path:g.Path,Capabilities:append([]string(nil),g.Capabilities...),
+			})
+		}
+		p.Programs=make([]projectconfig.ProgramGrant,0)
+		for _,app:=range appManager.List(){
+			p.Programs=append(p.Programs,projectconfig.ProgramGrant{
+				Name:app.Name,Executable:app.Path,
+				Start:app.CanStartStop,Stop:app.CanStartStop,
+			})
+		}
+		return hostProfiles.SaveWindows(id,p)
+	})
 	if ids,err:=hostProfiles.ListIDs(false);err==nil{
 		webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
 	}
