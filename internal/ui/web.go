@@ -106,7 +106,7 @@ type WebServer struct {
 	onExit              func()
 	onHostConnect       func(address string) error
 	onProjectList       func() ([]string,error)
-	onProjectSetup      func(id string) error
+	onProjectSetup      func(id,workspace,mcpCommand string) error
 	onProjectOpen       func(id string) error
 	onProjectSave       func() error
 	onBlacklistLock     func(locked bool) error
@@ -176,7 +176,7 @@ func (ws *WebServer) SetProjectSaveHandler(save func() error) {
 
 func (ws *WebServer) SetProjectHandlers(
  list func() ([]string,error),
- setup func(string) error,
+ setup func(id,workspace,mcpCommand string) error,
  open func(string) error,
  lock func(bool) error,
  edit func([]projectconfig.Rule) error,
@@ -514,6 +514,8 @@ func (ws *WebServer) handleProjectAction(w http.ResponseWriter,r *http.Request) 
  var req struct {
   Action string `json:"action"`
   ProjectID string `json:"project_id"`
+  Workspace string `json:"workspace"`
+  MCPCommand string `json:"mcp_command"`
   Entries []projectconfig.Rule `json:"entries"`
  }
  if err:=json.NewDecoder(r.Body).Decode(&req);err!=nil{
@@ -525,7 +527,7 @@ func (ws *WebServer) handleProjectAction(w http.ResponseWriter,r *http.Request) 
  case "list":
   if ws.onProjectList==nil {err=errors.New("config list unavailable")} else {ids,err=ws.onProjectList()}
  case "setup":
-  if ws.onProjectSetup==nil {err=errors.New("project setup unavailable")} else {err=ws.onProjectSetup(req.ProjectID)}
+  if ws.onProjectSetup==nil {err=errors.New("project setup unavailable")} else {err=ws.onProjectSetup(req.ProjectID,req.Workspace,req.MCPCommand)}
  case "open":
   if ws.onProjectOpen==nil {err=errors.New("project open unavailable")} else {err=ws.onProjectOpen(req.ProjectID)}
  case "save":
