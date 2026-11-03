@@ -1600,6 +1600,44 @@ func runClient(args []string) {
 			return nil
 		},
 	)
+	// Renaming/deleting an active Mac blacklist immediately invalidates the
+	// active project; notify Windows with ID metadata only, no config bytes.
+	invalidateMacProject:=func(id string) {
+		current,_,_:=getMacProfile()
+		if current!=id{return}
+		clearMacProfile()
+		clientMu.Lock();client:=activeClient;clientMu.Unlock()
+		if client!=nil && client.IsConnected(){
+			payload,_:=json.Marshal(map[string]any{"project_id":"","loaded":false})
+			_,err:=client.RoundTrip(&protocol.Message{
+				ID:fmt.Sprintf("project-close-%d",time.Now().UnixNano()),
+				Type:protocol.TypeProjectStatus,Payload:payload,
+			},15*time.Second)
+			if err!=nil{slog.Warn("Could not notify Windows about closed Mac blacklist","error",err)}
+		}
+	}
+	webUI.SetProjectManagementHandlers(
+		func(oldID,newID string)error{
+			if err:=macProfiles.SaveAs(oldID,newID,true);err!=nil{return err}
+			ids,_:=macProfiles.ListIDs(true)
+			webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+			return nil
+		},
+		func(oldID,newID string)error{
+			if err:=macProfiles.Rename(oldID,newID,true);err!=nil{return err}
+			invalidateMacProject(oldID)
+			ids,_:=macProfiles.ListIDs(true)
+			webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+			return nil
+		},
+		func(id string)error{
+			if err:=macProfiles.Delete(id,true);err!=nil{return err}
+			invalidateMacProject(id)
+			ids,_:=macProfiles.ListIDs(true)
+			webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
+			return nil
+		},
+	)
 	if ids,err:=macProfiles.ListIDs(true);err==nil{
 		webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
 	}
