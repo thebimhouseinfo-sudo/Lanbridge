@@ -516,6 +516,10 @@ func runHost(args []string) {
 			if err := gate.AddGrant(path, capabilities); err != nil {
 				return err
 			}
+			// Any permission edit can remove an existing capability; cancel
+			// old jobs rather than letting them continue under stale grants.
+			execMgr.CancelAll()
+			if id:=hostSession.Snapshot().WindowsID;id!="" && mcpMgr!=nil{mcpMgr.CloseProject(id)}
 			updatePermissionUI()
 			notifyProjectToolsChanged()
 			return nil
@@ -524,6 +528,8 @@ func runHost(args []string) {
 			if err := gate.RevokeGrant(path); err != nil {
 				return err
 			}
+			execMgr.CancelAll()
+			if id:=hostSession.Snapshot().WindowsID;id!="" && mcpMgr!=nil{mcpMgr.CloseProject(id)}
 			updatePermissionUI()
 			notifyProjectToolsChanged()
 			return nil
