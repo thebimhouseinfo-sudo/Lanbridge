@@ -226,6 +226,19 @@ func (g *Gatekeeper) HasPermission(candidatePath string, capability string) bool
 	return g.CheckAccess(candidatePath, capability)
 }
 
+// HasCapability reports a project-wide capability (Exec or MCP) from
+// Windows's currently selected Actual Grants. The host activates one
+// permission profile per project, so no implicit project-root restriction
+// is needed for these non-file-scoped capabilities.
+func (g *Gatekeeper) HasCapability(capability string) bool {
+ g.mu.RLock()
+ defer g.mu.RUnlock()
+ for _,grant:=range g.grants{
+  if hasCapability(grant.Capabilities,capability){return true}
+ }
+ return false
+}
+
 // ResolveAccess returns the canonical candidate path when a grant authorizes it.
 func (g *Gatekeeper) ResolveAccess(candidatePath string, capability string) (string, error) {
 	if !filepath.IsAbs(candidatePath) {
