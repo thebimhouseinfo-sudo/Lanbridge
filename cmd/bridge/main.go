@@ -598,9 +598,11 @@ func runHost(args []string) {
 	// Register handler: exec_start → start a command, wait up to wait_seconds
 	server.RegisterHandler(protocol.TypeExecStart, func(msg *protocol.Message) (*protocol.Message, error) {
 		var req struct {
-			Project     string `json:"project"`
-			Command     string `json:"command"`
-			WaitSeconds int    `json:"wait_seconds"`
+			Project     string   `json:"project"`
+			Command     string   `json:"command"`
+			Argv        []string `json:"argv"`
+			WorkDir     string   `json:"workdir"`
+			WaitSeconds int      `json:"wait_seconds"`
 		}
 		if err := json.Unmarshal(msg.Payload, &req); err != nil {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PARAMS", err.Error()), nil
@@ -623,7 +625,12 @@ func runHost(args []string) {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PERMISSION", "quyền execute chưa được cấp cho project này"), nil
 		}
 
-		job, err := execMgr.RunCommand(proj, req.Command)
+		var job *executor.Job
+		if len(req.Argv)>0 {
+			job,err=execMgr.RunShell(proj,req.Argv,req.WorkDir)
+		}else{
+			job,err=execMgr.RunCommand(proj,req.Command)
+		}
 		if err != nil {
 			return protocol.NewErrorResponse(msg.ID, "ERR_EXEC", err.Error()), nil
 		}
