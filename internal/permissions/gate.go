@@ -367,12 +367,19 @@ func (g *Gatekeeper) AddGrant(path string, caps []string) error {
 
 // RevokeGrant removes permissions for a path
 func (g *Gatekeeper) RevokeGrant(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("%w: permission path must be absolute", ErrPathEscape)
+	}
+	canonical, err := resolveExistingAncestor(path)
+	if err != nil {
+		return err
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	newGrants := make([]store.PermissionGrant, 0, len(g.grants))
 	for _, grant := range g.grants {
-		if samePath(grant.Path, path) {
+		if samePath(grant.Path, canonical) {
 			continue
 		}
 		newGrants = append(newGrants, grant)
