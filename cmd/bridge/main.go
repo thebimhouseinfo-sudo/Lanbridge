@@ -218,6 +218,7 @@ func runHost(args []string) {
 			if stopMDNS != nil {
 				stopMDNS()
 			}
+			execMgr.CancelAll()
 			_ = server.Close()
 			_ = webUI.Close()
 			os.Exit(0)
@@ -352,6 +353,7 @@ func runHost(args []string) {
 				})
 			}
 			if err:=gate.ReplaceGrants(grants);err!=nil{return err}
+			previousID:=hostSession.Snapshot().WindowsID
 			approvedApps:=make([]store.AppConfig,0,len(p.Programs))
 			appRights:=make([]appcontrol.ActionPermissions,0,len(p.Programs))
 			for _,a:=range p.Programs {
@@ -361,7 +363,10 @@ func runHost(args []string) {
 			if err:=appManager.ReplaceApps(approvedApps,appRights);err!=nil{return err}
 			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
 			activeProjectMu.Lock();activeProject=current;activeProjectMu.Unlock()
-			if mcpMgr!=nil{mcpMgr.CloseProject(id)}
+			if mcpMgr!=nil{
+				if previousID!=""{mcpMgr.CloseProject(previousID)}
+				if id!=previousID{mcpMgr.CloseProject(id)}
+			}
 			if err:=hostSession.SetWindowsLoaded(id);err!=nil{return err}
 			status:=hostSession.Snapshot()
 			webUI.UpdateState(func(st *ui.UIState){
@@ -633,6 +638,8 @@ func runHost(args []string) {
 			if stopMDNS != nil {
 				stopMDNS()
 			}
+			execMgr.CancelAll()
+			if id:=hostSession.Snapshot().WindowsID;id!="" && mcpMgr!=nil{mcpMgr.CloseProject(id)}
 			_ = server.Close()
 			_ = webUI.Close()
 			os.Exit(0)
