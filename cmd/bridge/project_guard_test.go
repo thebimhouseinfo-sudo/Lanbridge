@@ -6,6 +6,7 @@ import (
  "testing"
 
  "github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
+ "github.com/thebimhouseinfo-sudo/testbridge/internal/protocol"
 )
 
 func TestMacProjectDispatchFailsClosedWithoutLoadedBlacklist(t *testing.T) {
@@ -30,5 +31,21 @@ func TestMacProjectDispatchBlocksOnlyUserSelectedRules(t *testing.T) {
  }
  if err:=authorizeMacProjectCall("windows-app",b,true,"windows-app__normal",map[string]any{});err!=nil{
   t.Fatalf("unrelated app tool blocked: %v",err)
+ }
+}
+
+func TestHostProjectOperationGuardCoversEveryExecutionSurface(t *testing.T) {
+ for _,typ:=range []string{
+  protocol.TypeFileList,protocol.TypeFileInfo,protocol.TypeFileRead,
+  protocol.TypeFileSync,protocol.TypeExecStart,protocol.TypeExecResult,
+  protocol.TypeMCPCall,protocol.TypeAppControl,
+ }{
+  if !isProjectOperation(typ){t.Fatalf("project operation %q bypassed readiness guard",typ)}
+ }
+ for _,typ:=range []string{
+  protocol.TypePairInit,protocol.TypePairVerify,protocol.TypeUnpair,
+  protocol.TypeChat,protocol.TypeProjectStatus,protocol.TypePermissionReq,
+ }{
+  if isProjectOperation(typ){t.Fatalf("setup, pairing or chat unexpectedly blocked: %q",typ)}
  }
 }
