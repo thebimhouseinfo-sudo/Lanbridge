@@ -271,6 +271,42 @@ func (s *StdioServer) handleToolsList(req *JSONRPCRequest) {
 			},
 		},
 		{
+			Name:"config_list",
+			Description:"Liệt kê Config Blacklist đã tồn tại cục bộ trên Mac (chỉ đọc; không tạo file).",
+			InputSchema:map[string]any{"type":"object"},
+		},
+		{
+			Name:"config_current",
+			Description:"Kiểm tra Blacklist Config hiện đang load trên Mac và trạng thái PROJECT_READY (chỉ đọc).",
+			InputSchema:map[string]any{"type":"object"},
+		},
+		{
+			Name:"config_load",
+			Description:"Open Blacklist Config đã tồn tại trong Mac App Data, chỉ đọc; không tạo/edit/save.",
+			InputSchema:map[string]any{
+				"type":"object",
+				"properties":map[string]any{"project_id":map[string]string{"type":"string"}},
+				"required":[]string{"project_id"},
+			},
+		},
+		{
+			Name:"blacklist_edit",
+			Description:"Theo yêu cầu user, thay danh sách blacklist dự án đang mở. Chỉ được khi user đã Unlock thủ công trên Mac UI. Không có quyền tự Unlock.",
+			InputSchema:map[string]any{
+				"type":"object",
+				"properties":map[string]any{"entries":map[string]any{
+					"type":"array",
+					"items":map[string]any{"type":"object","properties":map[string]any{
+						"kind":map[string]string{"type":"string"},
+						"tool":map[string]string{"type":"string"},
+						"path":map[string]string{"type":"string"},
+						"equals":map[string]string{"type":"string"},
+					},"required":[]string{"kind","tool"}},
+				}},
+				"required":[]string{"entries"},
+			},
+		},
+		{
 			Name:        "request_access",
 			Description: "Yêu cầu Windows user cấp quyền đọc hoặc sync thư mục",
 			InputSchema: map[string]any{
@@ -400,7 +436,7 @@ func (s *StdioServer) handleToolsCall(req *JSONRPCRequest) {
 	}
 
 	switch callParams.Name {
-	case "bridge_status", "request_access", "list_dir", "file_info", "read_file", "sync_files", "run_command", "command_result", "chat_send":
+	case "bridge_status", "config_list", "config_current", "config_load", "blacklist_edit", "request_access", "list_dir", "file_info", "read_file", "sync_files", "run_command", "command_result", "chat_send":
 	default:
 		if !isProjectToolName(callParams.Name) {
 			s.sendToolError(req.ID, fmt.Sprintf("Tool %q is not available", callParams.Name))
