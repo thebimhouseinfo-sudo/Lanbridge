@@ -109,6 +109,9 @@ type WebServer struct {
 	onProjectSetup      func(id,workspace,mcpCommand string) error
 	onProjectOpen       func(id string) error
 	onProjectSave       func() error
+	onProfileSaveAs     func(oldID,newID string) error
+	onProfileRename     func(oldID,newID string) error
+	onProfileDelete     func(id string) error
 	onBlacklistLock     func(locked bool) error
 	onBlacklistEdit     func(entries []projectconfig.Rule) error
 	onPermissionRespond func(id string, approved bool, capabilities []string) error
@@ -173,6 +176,14 @@ func (ws *WebServer) SetPairCodeHandler(onSubmit func(code string) error) {
 // SetProjectHandlers routes local profile actions to each machine's own
 // App Data. On Windows only the human UI opens permissions; Mac may also
 // expose an existing-only read-only Open to the local agent.
+func (ws *WebServer) SetProjectManagementHandlers(
+ copy func(oldID,newID string) error,
+ rename func(oldID,newID string) error,
+ del func(id string) error,
+) {
+ ws.onProfileSaveAs=copy;ws.onProfileRename=rename;ws.onProfileDelete=del
+}
+
 func (ws *WebServer) SetProjectSaveHandler(save func() error) {
  ws.onProjectSave=save
 }
@@ -527,6 +538,7 @@ func (ws *WebServer) handleProjectAction(w http.ResponseWriter,r *http.Request) 
  var req struct {
   Action string `json:"action"`
   ProjectID string `json:"project_id"`
+  NewID string `json:"new_id"`
   Workspace string `json:"workspace"`
   MCPCommand string `json:"mcp_command"`
   Entries []projectconfig.Rule `json:"entries"`
@@ -545,6 +557,12 @@ func (ws *WebServer) handleProjectAction(w http.ResponseWriter,r *http.Request) 
   if ws.onProjectOpen==nil {err=errors.New("project open unavailable")} else {err=ws.onProjectOpen(req.ProjectID)}
  case "save":
   if ws.onProjectSave==nil {err=errors.New("Windows project save unavailable")} else {err=ws.onProjectSave()}
+ case "save_as":
+  if ws.onProfileSaveAs==nil {err=errors.New("profile Save As unavailable")}else{err=ws.onProfileSaveAs(req.ProjectID,req.NewID)}
+ case "rename":
+  if ws.onProfileRename==nil{err=errors.New("profile rename unavailable")}else{err=ws.onProfileRename(req.ProjectID,req.NewID)}
+ case "delete":
+  if ws.onProfileDelete==nil{err=errors.New("profile delete unavailable")}else{err=ws.onProfileDelete(req.ProjectID)}
  case "lock","unlock":
   if ws.onBlacklistLock==nil {err=errors.New("Mac blacklist UI unavailable")} else {err=ws.onBlacklistLock(req.Action=="lock")}
  case "edit":
