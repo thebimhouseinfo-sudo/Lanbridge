@@ -753,7 +753,7 @@ func runHost(args []string) {
 		}
 
 		// Check execute permission
-		if !gate.HasPermission(proj.Root, "execute") {
+		if !gate.HasCapability(permissions.CapExecute) {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PERMISSION", "quyền execute chưa được cấp cho project này"), nil
 		}
 
@@ -832,7 +832,7 @@ func runHost(args []string) {
 			var sessionErrors []string
 			id:=hostSession.Snapshot().WindowsID
 			proj:=getActiveProject(id)
-			if proj!=nil && proj.MCP!=nil && gate.HasPermission(proj.Root,"mcp") {
+			if proj!=nil && proj.MCP!=nil && gate.HasCapability(permissions.CapMCP) {
 				if _,err:=mcpMgr.Session(proj.Name,proj.Root,proj.MCP.Transport,proj.MCP.Command);err!=nil {
 					message:=fmt.Sprintf("%s: %v",proj.Name,err)
 					sessionErrors=append(sessionErrors,message)
@@ -862,7 +862,7 @@ func runHost(args []string) {
 		if proj == nil {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PROJECT", fmt.Sprintf("project '%s' not found", projName)), nil
 		}
-		if !gate.HasPermission(proj.Root, "mcp") {
+		if !gate.HasCapability(permissions.CapMCP) {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PERMISSION", "quyền mcp chưa được cấp"), nil
 		}
 		if proj.MCP == nil {
