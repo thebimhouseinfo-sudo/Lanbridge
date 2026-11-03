@@ -10,6 +10,10 @@ func TestPrivateBridgeConfigPaths(t *testing.T){
  root:=t.TempDir()
  file:=filepath.Join(root,"profiles","app","permissions.json")
  if !IsBridgePrivatePath(file,root){t.Fatal("config path not protected")}
+ for _,name:=range []string{"config.json","state.json","blacklist-locks.json"}{
+  if !IsBridgePrivatePath(filepath.Join(root,name),root){t.Fatalf("Bridge config %s was not protected",name)}
+ }
+ if IsBridgePrivatePath(filepath.Join(root,"logs","app.log"),root){t.Fatal("unrelated App Data log must remain readable when granted")}
  if IsBridgePrivatePath(filepath.Join(t.TempDir(),"ordinary.go"),root){t.Fatal("unrelated file blocked")}
  if IsBridgePrivatePath(filepath.Join(root,"..","other","test.go"),root){t.Fatal("traversal outside root blocked")}
 }
