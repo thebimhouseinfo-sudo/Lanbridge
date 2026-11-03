@@ -405,7 +405,8 @@ func runHost(args []string) {
 			var prior mcpsecret.Value
 			hadPrior:=false
 			if transport=="streamable_http" {
-				prior,e:=secretStore.Load(id);hadPrior=e==nil
+				var e error
+				prior,e=secretStore.Load(id);hadPrior=e==nil
 				if err:=secretStore.Save(id,mcpsecret.Value{Endpoint:endpoint,Authorization:authorization});err!=nil{
 					return nil,mcpsecret.ErrUnavailable
 				}
