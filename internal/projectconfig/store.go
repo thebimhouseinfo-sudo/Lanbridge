@@ -33,13 +33,21 @@ type ProgramGrant struct {
  Start bool `json:"start"`
  Stop bool `json:"stop"`
 }
+type MCPConfig struct {
+ Transport string `json:"transport"`
+ Command []string `json:"command,omitempty"`
+ URL string `json:"url,omitempty"`
+}
 type WindowsPermissions struct {
  SchemaVersion int `json:"schema_version"`
  ProjectID string `json:"project_id"`
  DisplayName string `json:"display_name,omitempty"`
+ Workspace string `json:"workspace,omitempty"`
  Folders []FolderGrant `json:"folders"`
  Capabilities []string `json:"capabilities,omitempty"`
  Programs []ProgramGrant `json:"programs,omitempty"`
+ NamedCommands map[string][]string `json:"named_commands,omitempty"`
+ MCP *MCPConfig `json:"mcp,omitempty"`
 }
 type Rule struct {
  Kind string `json:"kind"` // tool or argument
