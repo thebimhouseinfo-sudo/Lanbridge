@@ -28,6 +28,9 @@ jobs:
         run: go vet ./...
       - name: Check embedded UI JavaScript syntax
         run: node tools/check-ui-js.cjs
+      - name: Race detector (macOS)
+        if: runner.os == 'macOS'
+        run: go test -race -count=1 ./...
       - name: Build Windows GUI
         if: runner.os == 'Windows'
         shell: pwsh
