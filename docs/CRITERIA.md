@@ -118,10 +118,18 @@ không giới hạn vào registry 8 lệnh build và không tạo shell whitelis
 Proxy mỏng kết nối Mac agent tới MCP server sẵn có trên Windows.
 Khi MCP Access được cấp, forward toàn bộ tools của server đó.
 ~~Bridge không filter hay thêm policy lên tools.~~
-Giữ MCP proxy mỏng, nhưng Command Blacklist của từng Project Config
+~~Giữ MCP proxy mỏng, nhưng Command Blacklist của từng Project Config
 phải được áp dụng tại điểm gọi command/tool có thể xác định rõ.
 Khi command AutoCAD nằm bên trong payload của CAI/MCP, CAI command
-dispatcher dùng blacklist được cấu hình để từ chối command tương ứng.
+dispatcher dùng blacklist được cấu hình để từ chối command tương ứng.~~
+Bridge dùng chung cho **mọi repository và ứng dụng Windows**, không chỉ
+CAI/RAI. Mặc định không cấm tool nào của MCP server dự án. Khi Windows
+đã Grant MCP Access, hai config đã Open cùng Project ID (§20), và
+blacklist Mac đã load thành công, Mac được dùng **tất cả tools mà project
+cung cấp**, trừ những entry thực tế có trong blacklist của riêng project.
+Blacklist rỗng là danh sách hợp lệ, không chặn tool nào. **Blacklist
+thiếu/chưa load không đồng nghĩa với blacklist rỗng**: cấm project
+operations, không được tự bỏ qua blacklist để thực thi.
 Không thêm hệ thống per-tool security policy hay sandbox tổng quát.
 
 ## 9. Optional software Start/Stop
@@ -180,9 +188,12 @@ pasted logs, Copy. Không chat AI, không auto-execute.
     Test DWG đã biết đường dẫn, mở trực tiếp qua OS/Shell trong folder được cấp.
 20. ~~CAI/MCP blacklist AutoCAD `Documents.Open`, `OPEN` và biến thể qua
     COM/SendCommand/LISP; các COM/MCP thao tác CAD khác không bị chặn.~~
-    Project CAI có file blacklist gồm `Documents.Open`, `OPEN` và
+    ~~Project CAI có file blacklist gồm `Documents.Open`, `OPEN` và
     biến thể COM/SendCommand/LISP; CAI/MCP dispatcher áp dụng blacklist,
-    không chặn các COM/MCP CAD khác.
+    không chặn các COM/MCP CAD khác.~~
+    Mac First-time Setup tạo file blacklist **rỗng** cho mọi project;
+    AutoCAD OPEN/COM là ví dụ chỉ thêm nếu user yêu cầu và đã Unlock.
+    Không áp mặc định các lệnh này vào CAI/RAI hay ứng dụng Windows khác.
 21. Bridge không implement blacklist CAD bằng cách phân tích mọi Shell Command;
     CAI/RAI vẫn sở hữu nghiệp vụ test/drawing.
 22. Mỗi dự án có đúng hai file config riêng: **Windows App Data**
@@ -214,6 +225,23 @@ pasted logs, Copy. Không chat AI, không auto-execute.
     thiếu config → hiển thị mismatch/not ready, không thực hiện lệnh.
 33. Đóng/mở lại Bridge giữ các file config, nhưng không tự mở chúng:
     Windows mở manual; Mac agent có thể tự load đúng file hiện có.
+34. First-time Setup project mới trên Mac tạo **file blacklist rỗng**
+    (0 entry) với Project ID; không chờ user yêu cầu tạo blacklist.
+35. Mac đã load blacklist rỗng hợp lệ + Windows đã manual Open
+    Permission Config cùng Project ID + MCP Grant → Mac gọi được
+    **tất cả tools** MCP project cung cấp.
+36. Blacklist file **thiếu, lỗi đọc, hoặc chưa load** → không
+    PROJECT_READY, không được Read/Sync/Exec/App/MCP của project,
+    kể cả khi Permission Config Windows đã Open và Grant đầy đủ.
+37. Agent chỉ được Open/Load **file đã tồn tại**, tuyệt đối không tạo
+    blacklist qua config.load; First-time Setup của Mac app mới tạo
+    file rỗng. Không overwrite blacklist có sẵn.
+38. User không yêu cầu blacklist thì file **tồn tại nhưng rỗng** qua
+    Save/Load/restart; không chặn tools, vẫn cần load trước khi làm việc.
+39. Agent chỉ Edit blacklist khi user yêu cầu và Mac user đã Unlock
+    thủ công; Lock trở lại giữ nguyên entries.
+40. Không áp AutoCAD-specific blacklist mặc định vào phần mềm Windows
+    mới hay mọi project khác; Bridge dùng chung cho nhiều repository.
 
 ## 12. Explicit NON-goals
 
@@ -336,16 +364,26 @@ thao tác**. Nguồn drawing được dùng:
 
 ~~**CAI/MCP command blacklist** (không phải security sandbox của Bridge):~~
 **Command Blacklist được lưu trong file config thứ hai của từng dự án**
-(xem §19), không hardcode chung cho tất cả projects. Agent đọc repo để
-đề xuất và, theo yêu cầu user, thêm/bớt/sửa entries **chỉ khi Windows
-user đã Unlock thủ công**. CAI/MCP áp dụng blacklist khi dispatch
-AutoCAD command/COM. Các mục sau là blacklist CAI đã được yêu cầu:
+(xem §19), không hardcode chung cho tất cả projects.
+~~Các mục sau là blacklist CAI đã được yêu cầu:~~
+Các mục dưới đây là **ví dụ blacklist riêng cho CAI**, chỉ được thêm
+khi user yêu cầu và Mac đã manual Unlock sau khi agent đọc repo.
+Chúng không nằm mặc định trong file khi First-time Setup. Blacklist rỗng
+thì mọi tool của CAI vẫn hoạt động theo Windows Grant.
+~~Agent đọc repo để đề xuất và, theo yêu cầu user, thêm/bớt/sửa entries
+chỉ khi Windows user đã Unlock thủ công.~~
+Agent sửa danh sách theo yêu cầu user khi Mac UI đã manual Unlock.
+Bridge không tự chặn AutoCAD OPEN hoặc bất cứ chức năng ứng dụng khác
+chỉ vì ví dụ nêu trong Criteria:
 
 - COM `Application.Documents.Open()`, `AcadDocuments.Open()`,
   `Documents.Open()` và API Open tương đương để chọn một DWG khác.
 - AutoCAD in-app commands `OPEN`, `_.OPEN`, `-OPEN` và các biến thể
   cùng ý nghĩa, kể cả gọi qua `SendCommand` hoặc LISP `(command ...)`.
-- Không cho phép agent tự chọn working DWG bất kỳ để mở cho test.
+- ~~Không cho phép agent tự chọn working DWG bất kỳ để mở cho test.~~
+  Đó là mục đích sử dụng blacklist **khi user chủ động cấu hình** cho
+  CAI để tránh mở nhầm working drawing; không phải lệnh cấm mặc định
+  của Bridge cho tất cả ứng dụng.
 - Khi CAI/MCP từ chối lệnh trong blacklist, trả lỗi rõ
   `ERR_COMMAND_BLACKLISTED` cùng tên command/API.
 - **Không blacklist** COM `ActiveDocument`, `Documents.Add()`, các thao tác
@@ -356,9 +394,12 @@ AutoCAD command/COM. Các mục sau là blacklist CAI đã được yêu cầu:
   Blacklist là chính sách workflow tại CAI/MCP tool/command dispatch,
   không phải rào cản bảo mật tuyệt đối đối với Exec tùy ý.~~
   Bridge lưu/nạp blacklist riêng của project; dispatcher tương ứng
-  kiểm tra lệnh nhận diện được. CAI/MCP chịu trách nhiệm command nằm
-  trong payload, không yêu cầu Bridge parse tùy ý mọi Shell Command.
-  Blacklist là quy tắc workflow, không phải sandbox chống Exec tùy ý.
+  **chỉ** kiểm tra entry thực tế có trong file của project đã load.
+  CAI/MCP chịu trách nhiệm command nằm trong payload nếu entry
+  tương ứng đã được user cấu hình. Không bắt Bridge hiểu mọi chương
+  trình hoặc parse tùy ý Shell Command. File rỗng thì không cấm
+  bất kỳ lệnh nào; file thiếu/chưa load thì không thực thi project.
+  Blacklist là workflow tùy chọn, không phải sandbox chống Exec tùy ý.
 
 ## 18. End-to-end Development / Testing
 
@@ -371,9 +412,13 @@ AutoCAD command/COM. Các mục sau là blacklist CAI đã được yêu cầu:
    quyền; Windows được cấp khác với request.
 4. Mac theo Actual Grant: Read logs/source → Exec build/script → Sync small
    source/DLL → Shell Stop/Start ứng dụng → gọi CAI/RAI MCP để test.
-5. Khi test AutoCAD chỉ dùng Active Drawing / New Drawing / OS-shell direct
+5. ~~Khi test AutoCAD chỉ dùng Active Drawing / New Drawing / OS-shell direct
    open Saved Test Drawing theo §17; AutoCAD OPEN/COM Open bị blacklist
-   theo Command Blacklist Config của project CAI đang nạp.
+   theo Command Blacklist Config của project CAI đang nạp.~~
+   Với CAI, Active/New Drawing hoặc OS/Shell direct-open test DWG là
+   workflow test được khuyến nghị; OPEN/COM Open chỉ bị cấm nếu user
+   thực sự thêm vào blacklist CAI. Với các ứng dụng Windows khác,
+   không áp quy định AutoCAD/drawing lên các tool của chúng.
 6. Lặp lại build/test trong phiên đã Grant, không thêm human gate.
 7. Thoát một trong hai Bridge app → kết thúc phiên, giữ nguyên các
    Config Profiles đã lưu để sử dụng trong lần sau.
@@ -415,9 +460,14 @@ khác nhau và không cần giống nhau về bytes; **phải cùng Project ID**
 
 **File 2 — Command Blacklist Config (agent-assisted):**
 
-- Chứa danh sách command/API blacklist riêng của dự án. Agent
-  **đọc/khảo sát repo** trước khi đề xuất cấu hình và chỉ chỉnh
-  (thêm/bớt/sửa) theo yêu cầu của user.
+- Chứa danh sách command/API blacklist riêng của dự án. **Mac app
+  tự tạo file blacklist rỗng (0 entry) khi First-time Setup một
+  project mới**; không tự thêm các command bị cấm vì ví dụ CAI/RAI.
+  Không tự tạo lại/overwrite file blacklist đang có.
+- Agent **đọc/khảo sát repo** trước khi đề xuất cấu hình và chỉ chỉnh
+  (thêm/bớt/sửa) theo yêu cầu của user. Nếu user không yêu cầu,
+  file rỗng được giữ nguyên và Mac có toàn quyền tools của project
+  theo MCP Grant Windows, sau khi load thành công.
 - Agent **chỉ được phép sửa file này khi ~~Windows user đã Unlock thủ công~~
   người dùng đã Unlock thủ công trên Mac UI**.
   ~~Windows UI phải có nút **Lock / Unlock**~~
@@ -464,8 +514,12 @@ khác nhau và không cần giống nhau về bytes; **phải cùng Project ID**
   Open một Command Blacklist Config đã lưu sẵn** trên Mac. Thao tác
   Open/Load của agent chỉ **read-only, existing-file-only**: không
   create, edit, append, rename, delete, overwrite, save hoặc Sync config.
-  Không thấy config thì báo rõ `CONFIG_NOT_FOUND` và chờ user tạo/lưu
-  bằng UI ở máy tương ứng; agent không tự tạo placeholder.
+  ~~Không thấy config thì báo rõ `CONFIG_NOT_FOUND` và chờ user tạo/lưu
+  bằng UI ở máy tương ứng; agent không tự tạo placeholder.~~
+  **Ngoại lệ duy nhất là lúc First-time Setup project mới:** Mac app
+  khởi tạo blacklist file rỗng. Agent config.load vẫn chỉ đọc file
+  đã tồn tại; nếu file thiếu sau setup, báo `CONFIG_NOT_FOUND`,
+  không tạo lại ngầm, **không PROJECT_READY và không thực thi tools**.
 - Quy tắc agent không sửa config **trong thao tác Open** khác với workflow
   **Edit Command Blacklist** ở §19: Agent chỉ được Edit khi người dùng yêu
   cầu riêng và đã Unlock thủ công trên Mac UI. Việc Auto-Open không cần
@@ -484,6 +538,54 @@ khác nhau và không cần giống nhau về bytes; **phải cùng Project ID**
   restart. Load không tự kích hoạt Sync/Build/Test/Start/Stop.
 - Windows tiếp tục Grant/Edit/Revoke folder/program qua Windows UI theo
   §14; Mac tiếp tục quản lý blacklist/Lock/Unlock theo §19.
+
+## 21. Generic Bridge First-time Setup and Mandatory Blacklist Load
+
+Bridge là công cụ **dùng chung cho mọi repository và loại phần mềm Windows**.
+CAI/RAI chỉ là ví dụ. Không gắn các quy tắc AutoCAD hay tool blacklist
+cố định vào hệ thống Bridge.
+
+**First-time Setup (Mac app):**
+
+- Khi user thiết lập **project mới lần đầu**, ứng dụng Bridge trên Mac
+  tự tạo file Command Blacklist Config **rỗng với Project ID** trong
+  Mac App Data, ví dụ `blacklist: []`. Đây là công việc khởi tạo
+  dự án, không phải quyền create của agent qua `config.load`.
+- Không tự khảo sát repo để tạo blacklist, không tự thêm các entry
+  AutoCAD OPEN hoặc tool nào, không yêu cầu user cấu hình blacklist.
+- Nếu file đã tồn tại, không reset/ghi đè/xóa entries dù Setup/Open
+  được gọi lại.
+
+**Quy tắc Open và readiness cho mọi phiên:**
+
+- Windows user phải tự **Open Permission Config đã lưu** qua Windows UI.
+  Mac agent có thể tự **Open/Load Command Blacklist Config đã tồn tại**
+  trên Mac, thao tác read-only, không Create/Edit/Save.
+- Hai máy chỉ trao đổi **Project ID** để so khớp, không sync nội dung
+  hai file config. Không yêu cầu hai file có nội dung giống nhau.
+- Chỉ `PROJECT_READY` khi **cả hai file thực sự tồn tại, đã load
+  thành công, và Project ID khớp**. Không bỏ qua việc load blacklist
+  dù file dự kiến rỗng. Nếu Mac blacklist **thiếu**, **chưa load**
+  hoặc **lỗi đọc**, dự án không được vận hành; trả
+  `CONFIG_NOT_FOUND` / `CONFIG_NOT_OPEN` hoặc lỗi load phù hợp.
+- Phân biệt bắt buộc:
+  - **File tồn tại + load thành công + danh sách rỗng:** được hoạt
+    động; không chặn tool nào do blacklist.
+  - **Không có file, chưa load hoặc load lỗi:** không được hoạt
+    động, tránh bỏ qua blacklist người dùng đã cấu hình.
+
+**Phạm vi tools và sửa blacklist:**
+
+- Windows MCP Access Grant và `PROJECT_READY` thì **mặc định Mac
+  được dùng tất cả tools MCP mà repo/phần mềm dự án cung cấp**.
+  Chỉ những entry thật sự có trong blacklist đã load mới bị từ chối.
+- User có thể không bao giờ yêu cầu blacklist: vẫn tạo và lưu file
+  rỗng từ Setup để đáp ứng quy tắc load, không hạn chế tính năng.
+- Nếu user yêu cầu xây blacklist, agent đọc repo và đề xuất danh sách
+  project-specific. Agent chỉ thêm/bớt/sửa khi Mac user đã **Unlock
+  thủ công** trên Mac UI, rồi user có thể Lock lại.
+- Blacklist là workflow tùy chọn theo dự án; không thêm gate phê
+  duyệt từng thao tác, không chặn cứng chức năng phần mềm đang dev.
 
 ## Technical Advisor decision checkpoint
 
@@ -519,3 +621,10 @@ tiêu chí nhẹ + tin cậy. Phạm vi cá nhân → gate đơn giản là đ�
   Project operations chỉ chạy khi hai máy đã Open cùng Project ID.
   Agent Edit Blacklist khi user yêu cầu và Mac manual Unlock là luồng
   riêng, không đồng nhất với Open.
+- v1.2c HUMAN CLARIFICATION: 2026-11-03 — Bridge là generic bridge cho
+  mọi repo/phần mềm Windows. Mac app tạo **file blacklist rỗng** trong
+  First-time Setup; agent chỉ Open file tồn tại và không tạo/sửa khi Open.
+  Blacklist rỗng + load thành công = không chặn tools; blacklist thiếu
+  hoặc chưa load = không PROJECT_READY, cấm dùng tools để tránh bypass.
+  Chỉ user yêu cầu và Mac manual Unlock mới được thêm/bớt blacklist.
+  AutoCAD OPEN/COM chỉ là ví dụ, không hardcode làm blacklist mặc định.
