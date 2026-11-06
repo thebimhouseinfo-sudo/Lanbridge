@@ -4,12 +4,12 @@ Bridge kết nối máy Mac Apple Silicon với máy Windows 10/11 trên cùng m
 
 ## Cài bản thử qua shell
 
-Hai lệnh dưới đây cài cùng bản thử **test-f913c7b0a184** đã qua CI, kiểm tra SHA-256 trước khi giải nén và giữ cấu hình hiện có. Cần Internet. Thoát LAN Bridge và phiên MCP trên cả hai máy trước khi cài. Nghiệm thu máy thật vẫn chờ thực hiện.
+Hai lệnh dưới đây cài cùng bản thử **test-73494f065edf** đã qua CI, kiểm tra SHA-256 trước khi giải nén và giữ cấu hình hiện có. Cần Internet. Thoát LAN Bridge và phiên MCP trên cả hai máy trước khi cài. Nghiệm thu máy thật vẫn chờ thực hiện.
 
 **Windows 10/11 x64:** Mở PowerShell và chạy một lệnh:
 
 ```powershell
-& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest -UseBasicParsing 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-f913c7b0a184/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; if ((Get-FileHash "$d\package.zip" -Algorithm SHA256).Hash -ne '2f1aa5ee8dc67499989f249d222ea11dad42cb2fc84d484c28bd047c70264ba8') { throw 'Checksum không khớp' }; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'Cài đặt thất bại' } }
+& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest -UseBasicParsing 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-73494f065edf/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; if ((Get-FileHash "$d\package.zip" -Algorithm SHA256).Hash -ne 'c81abda05aa32dd4fff2e1cecd8925864a2dc1e8a1152b60ac4d08bc586bc3da') { throw 'Checksum không khớp' }; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'Cài đặt thất bại' } }
 ```
 
 Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut và tạo `%APPDATA%\LanBridge\config.json` nếu chưa có. Chạy shortcut, tìm icon Bridge trong khay hệ thống, chọn **Mở giao diện**. Khi Windows Firewall hỏi, cho phép trên mạng Private tin cậy. Cài lại giữ file config hiện có.
@@ -17,7 +17,7 @@ Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut 
 **Mac Apple Silicon:** Mở Terminal và chạy một lệnh:
 
 ```sh
-d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-f913c7b0a184/testbridge-macos-arm64.zip' -o "$d/package.zip" && [ "$(shasum -a 256 "$d/package.zip" | cut -d ' ' -f 1)" = "6597398a48987b7ce1ff5344f38b0a14de09b0f50147b39d4e9913d5b208fc87" ] && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
+d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-73494f065edf/testbridge-macos-arm64.zip' -o "$d/package.zip" && [ "$(shasum -a 256 "$d/package.zip" | cut -d ' ' -f 1)" = "a00d1cc1888503c433522b3e9506a85d94bef146c892c84921c9a5bdd0cbed6b" ] && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
 ```
 
 Installer chép app vào `~/Applications/LAN Bridge.app`, chép lệnh `bridge` vào `~/.local/bin` và mở app. Chọn **Mở giao diện** từ icon trên thanh menu; cho phép Local Network nếu macOS hỏi. Nếu macOS chặn app chưa được ký, làm theo thông báo của hệ điều hành trước khi tiếp tục.
@@ -37,6 +37,10 @@ Giao diện ưu tiên mở cửa sổ Edge hoặc Chrome cỡ ban đầu khoản
 **Quan trọng khi cài lại:** Installer giữ dữ liệu Bridge hiện có trong App Data. Legacy `config.json` vẫn có thể tồn tại vì tương thích, nhưng project workflow v2 cần **Windows Permission Config** và **Mac Command Blacklist Config** riêng. Không dùng CAI/RAI hoặc AutoCAD OPEN làm blacklist mặc định.
 
 Không chia sẻ pairing code hoặc URL giao diện có token. Chỉ sử dụng trên LAN tin cậy; các giới hạn blacklist là chính sách workflow theo yêu cầu user, không phải sandbox chống mọi lệnh Shell.
+
+### Mac tự cấu hình Windows (Remote Config)
+
+Trên Windows, mục **Cho phép Mac tự cấu hình**: chọn thư mục source LanBridge rồi bấm **Bật cho Mac**. Agent Mac dùng tool `windows_config` (`bootstrap`, `grant_folder`, `add_program`, `save`…) nhưng chỉ đổi được trong thư mục đó; ngoài phạm vi phải dùng `request_access` để Windows user duyệt. Tự tắt khi mất kết nối. Trên Mac, `bridge ui` hoặc mở lại app sẽ mở giao diện.
 
 ## Danh sách thử trên hai máy
 
