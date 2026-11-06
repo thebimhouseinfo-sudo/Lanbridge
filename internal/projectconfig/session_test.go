@@ -18,3 +18,17 @@ func TestSessionRequiresBothLoadedAndMatchingID(t *testing.T) {
  s.Clear()
  if err:=s.Require("a");!errors.Is(err,ErrNotOpen){t.Fatal("reconnect must clear readiness")}
 }
+
+func TestClearWindowsKeepsMacHandshake(t *testing.T) {
+	var s Session
+	_ = s.SetMacLoaded("CAI")
+	_ = s.SetWindowsLoaded("CAI")
+	s.ClearWindows()
+	if s.Snapshot().Ready {
+		t.Fatal("must not be ready without Windows")
+	}
+	_ = s.SetWindowsLoaded("CAI")
+	if !s.Snapshot().Ready {
+		t.Fatal("Mac handshake must survive a Windows re-open")
+	}
+}

@@ -3,7 +3,9 @@ package ui
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 func browserFileExists(path string) bool {
@@ -34,6 +36,18 @@ func browserCandidates(platform string, getenv func(string) string) []string {
 
 func openUIWindow(platform, url string, getenv func(string) string, exists func(string) bool, start func(string, ...string) error) error {
 	for _, path := range browserCandidates(platform, getenv) {
+		if platform == "darwin" && exists(path) {
+			// A dedicated profile forces a new browser process. Passing --app to
+			// an already running Chrome/Edge (e.g. started without a window)
+			// forwards the request and may never show a window.
+			bundle := filepath.Dir(filepath.Dir(filepath.Dir(path)))
+			profile := filepath.Join(getenv("HOME"), "Library", "Application Support", "LanBridge", "ui-profile")
+			if start("open", "-n", bundle, "--args", "--app="+url, "--window-size=500,900",
+				"--user-data-dir="+profile, "--no-first-run", "--no-default-browser-check") == nil {
+				return nil
+			}
+			continue
+		}
 		if exists(path) && start(path, "--app="+url, "--window-size=500,900") == nil {
 			return nil
 		}
@@ -53,4 +67,11 @@ func openUIWindow(platform, url string, getenv func(string) string, exists func(
 		}
 	}
 	return errors.New("could not start a browser")
+}
+
+// OpenURL opens the UI URL in the preferred app window or default browser.
+func OpenURL(url string) error {
+	return openUIWindow(runtime.GOOS, url, os.Getenv, browserFileExists, func(name string, args ...string) error {
+		return exec.Command(name, args...).Start()
+	})
 }

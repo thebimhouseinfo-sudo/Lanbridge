@@ -29,6 +29,13 @@ func (s *Session) SetMacLoaded(id string) error {
  s.mu.Unlock()
  return nil
 }
+// ClearWindows forgets only the Windows side. Re-opening a Windows config must
+// not discard the Mac's already completed blacklist handshake.
+func (s *Session) ClearWindows() {
+ s.mu.Lock()
+ s.windowsID=""
+ s.mu.Unlock()
+}
 func (s *Session) Clear() {
  s.mu.Lock()
  s.windowsID=""

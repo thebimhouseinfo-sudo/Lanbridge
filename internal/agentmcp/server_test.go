@@ -47,8 +47,8 @@ func TestMCPInitializeAndToolsList(t *testing.T) {
 	}
 
 	rawTools, ok := resMap["tools"].([]any)
-	if !ok || len(rawTools) != 13 {
-		t.Fatalf("Expected 13 tools including 4 local config tools, got %d", len(rawTools))
+	if !ok || len(rawTools) != 14 {
+		t.Fatalf("Expected 14 tools including windows_config, got %d", len(rawTools))
 	}
 
 	expectedNames := map[string]bool{
@@ -65,6 +65,7 @@ func TestMCPInitializeAndToolsList(t *testing.T) {
 		"config_current": true,
 		"config_load":    true,
 		"blacklist_edit": true,
+		"windows_config": true,
 	}
 
 	for _, rt := range rawTools {
@@ -300,12 +301,12 @@ func TestMCPToolsListIncludesProjectTools(t *testing.T) {
 		t.Fatalf("tools/list result = %#v", response.Result)
 	}
 	tools, ok := result["tools"].([]any)
-	if !ok || len(tools) != 14 {
-		t.Fatalf("tools/list returned %d tools, want 14 (13 builtins + 1 project)", len(tools))
+	if !ok || len(tools) != 15 {
+		t.Fatalf("tools/list returned %d tools, want 15 (14 builtins + 1 project)", len(tools))
 	}
-	lastTool, ok := tools[13].(map[string]any)
+	lastTool, ok := tools[14].(map[string]any)
 	if !ok || lastTool["name"] != "CAI__draw_line" {
-		t.Fatalf("project tool missing from tools/list: %#v", tools[13])
+		t.Fatalf("project tool missing from tools/list: %#v", tools[14])
 	}
 }
 

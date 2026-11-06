@@ -53,6 +53,8 @@ type UIState struct {
 	MCPProvider        string                  `json:"mcp_provider,omitempty"`
 	MCPProviders       []MCPProviderState      `json:"mcp_providers,omitempty"`
 	MCPWarnings        []string                `json:"mcp_warnings,omitempty"`
+	RemoteConfig       bool                    `json:"remote_config"`
+	RemoteScope        string                  `json:"remote_scope,omitempty"`
 }
 
 type MCPProviderState struct {
@@ -128,6 +130,7 @@ type WebServer struct {
 	onMCPProviderChange func(context.Context, string) ([]MCPProviderState, error)
 	// M3: MCP tool forwarding (set by bridge client)
 	onMCPForward       func(toolName string, args map[string]any) (any, error)
+	onRemoteScopeSave  func(string) error
 	onProjectToolsList func() ([]map[string]any, error)
 }
 
@@ -284,6 +287,7 @@ func (ws *WebServer) Start() {
 	mux.HandleFunc("/api/config/open", ws.handleOpenConfig)
 	mux.HandleFunc("/api/project/action", ws.handleProjectAction)
 	mux.HandleFunc("/api/exit", ws.handleExit)
+	mux.HandleFunc("/api/remote/toggle", ws.handleRemoteToggle)
 	mux.HandleFunc("/api/permissions/respond", ws.handlePermissionRespond)
 	mux.HandleFunc("/api/permissions/update", ws.handleGrantUpdate)
 	mux.HandleFunc("/api/permissions/revoke", ws.handleGrantRevoke)

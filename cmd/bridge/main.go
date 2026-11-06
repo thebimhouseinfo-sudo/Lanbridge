@@ -58,6 +58,8 @@ func main() {
 		runClient(os.Args[2:])
 	case "mcp":
 		runMCP(os.Args[2:])
+	case "ui":
+		runUI()
 	case "version", "-v", "--version":
 		fmt.Printf("LAN Test Bridge v%s\n", Version)
 	case "help", "-h", "--help":
@@ -86,6 +88,7 @@ Commands:
   host      Run on Windows to host commands, MCP forwarding, and file operations
   client    Run on macOS to pair and coordinate with the Windows host
   mcp       Run on macOS as a stdio MCP server for Claude Code or Codex
+  ui        Open the control panel of the running Mac client
   version   Show version information
   help      Show this help message
 
@@ -335,7 +338,7 @@ func runHost(args []string) {
 			// must not leave the old project silently authorized.
 			if !hostConnected.Load(){return errors.New("connect to Mac before opening a project")}
 			previousID:=hostSession.Snapshot().WindowsID
-			hostSession.Clear()
+			hostSession.ClearWindows()
 			activeProjectMu.Lock();activeProject=nil;activeProjectMu.Unlock()
 			if previousID!="" {
 				execMgr.CancelAll()
@@ -402,7 +405,7 @@ func runHost(args []string) {
 			}
 			if err:=hostProfiles.Rename(oldID,newID,false);err!=nil{return err}
 			if hostSession.Snapshot().WindowsID==oldID {
-				hostSession.Clear()
+				hostSession.ClearWindows()
 				activeProjectMu.Lock();activeProject=nil;activeProjectMu.Unlock()
 				webUI.UpdateState(func(st *ui.UIState){
 					st.ProjectID="";st.ProjectReady=false
@@ -417,7 +420,7 @@ func runHost(args []string) {
 		func(id string) error {
 			if err:=hostProfiles.Delete(id,false);err!=nil{return err}
 			if hostSession.Snapshot().WindowsID==id {
-				hostSession.Clear()
+				hostSession.ClearWindows()
 				activeProjectMu.Lock();activeProject=nil;activeProjectMu.Unlock()
 				webUI.UpdateState(func(st *ui.UIState){
 					st.ProjectID="";st.ProjectReady=false
@@ -452,6 +455,16 @@ func runHost(args []string) {
 		return hostProfiles.SaveWindows(id,p)
 	}
 	webUI.SetProjectSaveHandler(saveCurrentWindowsProfile)
+	// Persist grant/program edits immediately so the user never loses them by
+	// forgetting a manual Save. Skipped when no config is open yet.
+	autoSaveProfile:=func() error {
+		if !hostSession.Snapshot().Ready || saveCurrentWindowsProfile==nil {return nil}
+		if err:=saveCurrentWindowsProfile();err!=nil{
+			slog.Error("Auto-save of Windows config failed","error",err)
+			return fmt.Errorf("đã áp dụng nhưng chưa lưu được config: %w",err)
+		}
+		return nil
+	}
 	if ids,err:=hostProfiles.ListIDs(false);err==nil{
 		webUI.UpdateState(func(st *ui.UIState){st.ProjectConfigs=ids})
 	}
@@ -464,7 +477,7 @@ func runHost(args []string) {
 			webUI.UpdateState(func(s *ui.UIState) {
 				s.Apps = appManager.List()
 			})
-			return nil
+			return autoSaveProfile()
 		},
 		func(id, action string) (string, error) {
 			if !hostSession.Snapshot().Ready{return "",projectconfig.ErrNotOpen}
@@ -475,17 +488,17 @@ func runHost(args []string) {
 		func(name,path string) error {
 			if err:=appManager.AddApp(name,path);err!=nil{return err}
 			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
-			return nil
+			return autoSaveProfile()
 		},
 		func(id string) error {
 			if err:=appManager.RemoveApp(id);err!=nil{return err}
 			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
-			return nil
+			return autoSaveProfile()
 		},
 		func(id string,start,stop bool) error {
 			if err:=appManager.SetActionPermissions(id,start,stop);err!=nil{return err}
 			webUI.UpdateState(func(st *ui.UIState){st.Apps=appManager.List()})
-			return nil
+			return autoSaveProfile()
 		},
 	)
 	webUI.SetChatHandler(func(text string) error {
@@ -518,6 +531,7 @@ func runHost(args []string) {
 			if err := gate.RespondRequest(id, approved, capabilities); err != nil {
 				return err
 			}
+			defer func(){ _ = autoSaveProfile() }()
 			updatePermissionUI()
 			notifyProjectToolsChanged()
 			return nil
@@ -526,6 +540,7 @@ func runHost(args []string) {
 			if err := gate.AddGrant(path, capabilities); err != nil {
 				return err
 			}
+			defer func(){ _ = autoSaveProfile() }()
 			// Any permission edit can remove an existing capability; cancel
 			// old jobs rather than letting them continue under stale grants.
 			execMgr.CancelAll()
@@ -538,6 +553,7 @@ func runHost(args []string) {
 			if err := gate.RevokeGrant(path); err != nil {
 				return err
 			}
+			defer func(){ _ = autoSaveProfile() }()
 			execMgr.CancelAll()
 			if id:=hostSession.Snapshot().WindowsID;id!="" && mcpMgr!=nil{mcpMgr.CloseProject(id)}
 			updatePermissionUI()
@@ -727,6 +743,30 @@ func runHost(args []string) {
 		return protocol.NewResponse(msg.ID,protocol.TypeProjectStatus,status)
 	})
 	mcpMgr = mcpfwd.NewManager(notifyProjectToolsChanged)
+
+	// Remote configuration: the paired Mac agent may edit this Windows
+	// permission file only while the Windows user has it switched on, and only
+	// inside the user-chosen scope folder (the LanBridge source directory).
+	if dir,err:=store.GetConfigDir();err==nil{
+		scopeFile:=filepath.Join(dir,"remote_scope.txt")
+		if b,err:=os.ReadFile(scopeFile);err==nil{webUI.SetRemoteScope(strings.TrimSpace(string(b)))}
+		webUI.SetRemoteScopeSaver(func(p string) error {return os.WriteFile(scopeFile,[]byte(p),0600)})
+	}
+	server.RegisterHandler(protocol.TypeRemoteConfig, func(msg *protocol.Message) (*protocol.Message,error) {
+		if msg.PeerFingerprint=="" || msg.PeerFingerprint!=pairedClientFingerprint.Load().(string) {
+			return protocol.NewErrorResponse(msg.ID,"ERR_UNPAIRED","client is not paired"),nil
+		}
+		var req ui.RemoteConfigRequest
+		if err:=json.Unmarshal(msg.Payload,&req);err!=nil{
+			return protocol.NewErrorResponse(msg.ID,"ERR_PARAMS",err.Error()),nil
+		}
+		result,err:=webUI.HandleRemoteConfig(req)
+		if err!=nil{return protocol.NewErrorResponse(msg.ID,"ERR_REMOTE_CONFIG",err.Error()),nil}
+		if req.Action!="status" && req.Action!="list" {
+			webUI.AddChatMessage(ui.ChatMessage{From:"Bridge",Text:"Mac agent đã chạy remote config: "+req.Action,SentAt:time.Now()})
+		}
+		return protocol.NewResponse(msg.ID,protocol.TypeRemoteConfig,result)
+	})
 
 	// Register handler: exec_start → start a command, wait up to wait_seconds
 	server.RegisterHandler(protocol.TypeExecStart, func(msg *protocol.Message) (*protocol.Message, error) {
@@ -933,6 +973,7 @@ func runHost(args []string) {
 	}, func() {
 		hostSession.Clear()
 		hostConnected.Store(false)
+		webUI.DisableRemoteConfig()
 		webUI.UpdateState(func(st *ui.UIState){
 			st.ProjectID="";st.ProjectReady=false
 			st.ProjectError=projectconfig.ErrNotOpen.Error()
@@ -1484,6 +1525,18 @@ func runClient(args []string) {
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Launching the app again (Finder/Spotlight/open) while it is already
+	// running just opens its UI; the tray icon may be hidden on crowded menu bars.
+	if !*headless {
+		if opened, err := openRunningUI(); opened {
+			if err != nil {
+				slog.Error("Could not open running Bridge UI", "error", err)
+				os.Exit(1)
+			}
+			return
+		}
 	}
 
 	stateStore, err := store.NewStateStore()
@@ -2071,6 +2124,18 @@ func runClient(args []string) {
 		// Local agent Config tools have no Windows file-system access.
 		// Open is read-only: only the Mac app Setup can create empty files.
 		switch toolName {
+		case "windows_config":
+			if client==nil || !client.IsConnected(){return nil,errors.New("chưa kết nối tới host Windows")}
+			payload,err:=json.Marshal(args);if err!=nil{return nil,err}
+			resp,err:=client.RoundTrip(&protocol.Message{
+				ID:fmt.Sprintf("remote-%d",time.Now().UnixNano()),
+				Type:protocol.TypeRemoteConfig,Payload:payload,
+			},30*time.Second)
+			if err!=nil{return nil,err}
+			if resp.Error!=nil{return nil,resp.Error}
+			var out any
+			if err:=json.Unmarshal(resp.Payload,&out);err!=nil{return nil,err}
+			return out,nil
 		case "config_list":
 			ids,err:=macProfiles.ListIDs(true)
 			if err!=nil{return nil,err}

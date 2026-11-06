@@ -292,6 +292,24 @@ func (s *StdioServer) handleToolsList(req *JSONRPCRequest) {
 			},
 		},
 		{
+			Name:"windows_config",
+			Description:"Tự cấu hình Permission Config trên Windows khi Windows user đã bật 'Cho phép Mac tự cấu hình'. Chỉ thay đổi được trong thư mục source LanBridge (phạm vi do Windows chọn); ngoài phạm vi dùng request_access. action: status, list, bootstrap (project_id: tạo nếu thiếu, mở, cấp phạm vi, lưu), setup_project, open_project, grant_folder (path, capabilities), revoke_folder, add_program (name, path), remove_program, set_program (id,start,stop), save.",
+			InputSchema:map[string]any{
+				"type":"object",
+				"properties":map[string]any{
+					"action":map[string]string{"type":"string"},
+					"project_id":map[string]string{"type":"string"},
+					"path":map[string]string{"type":"string"},
+					"capabilities":map[string]any{"type":"array","items":map[string]string{"type":"string"}},
+					"name":map[string]string{"type":"string"},
+					"id":map[string]string{"type":"string"},
+					"start":map[string]string{"type":"boolean"},
+					"stop":map[string]string{"type":"boolean"},
+				},
+				"required":[]string{"action"},
+			},
+		},
+		{
 			Name:"blacklist_edit",
 			Description:"Theo yêu cầu user, thay danh sách blacklist dự án đang mở. Chỉ được khi user đã Unlock thủ công trên Mac UI. Không có quyền tự Unlock.",
 			InputSchema:map[string]any{
@@ -441,7 +459,7 @@ func (s *StdioServer) handleToolsCall(req *JSONRPCRequest) {
 	}
 
 	switch callParams.Name {
-	case "bridge_status", "config_list", "config_current", "config_load", "blacklist_edit", "request_access", "list_dir", "file_info", "read_file", "sync_files", "run_command", "command_result", "chat_send":
+	case "bridge_status", "config_list", "config_current", "config_load", "blacklist_edit", "windows_config", "request_access", "list_dir", "file_info", "read_file", "sync_files", "run_command", "command_result", "chat_send":
 	default:
 		if !isProjectToolName(callParams.Name) {
 			s.sendToolError(req.ID, fmt.Sprintf("Tool %q is not available", callParams.Name))
