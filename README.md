@@ -4,12 +4,12 @@ Bridge kết nối máy Mac Apple Silicon với máy Windows 10/11 trên cùng m
 
 ## Cài bản thử qua shell
 
-Hai lệnh dưới đây cài cùng bản thử **test-0376a95a800f** đã qua CI, kiểm tra SHA-256 trước khi giải nén và giữ cấu hình hiện có. Cần Internet. Thoát LAN Bridge và phiên MCP trên cả hai máy trước khi cài. Nghiệm thu máy thật vẫn chờ thực hiện.
+Hai lệnh dưới đây cài cùng bản thử **test-6c6b67f3a6c7** đã qua CI, kiểm tra SHA-256 trước khi giải nén và giữ cấu hình hiện có. Cần Internet. Thoát LAN Bridge và phiên MCP trên cả hai máy trước khi cài. Nghiệm thu máy thật vẫn chờ thực hiện.
 
 **Windows 10/11 x64:** Mở PowerShell và chạy một lệnh:
 
 ```powershell
-& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest -UseBasicParsing 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-0376a95a800f/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; if ((Get-FileHash "$d\package.zip" -Algorithm SHA256).Hash -ne '638b9057fc362a10fd5a3c21a3772df8b8ce6d84a85e8d0c33c7e8296cf74ca2') { throw 'Checksum không khớp' }; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'Cài đặt thất bại' } }
+& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest -UseBasicParsing 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-6c6b67f3a6c7/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; if ((Get-FileHash "$d\package.zip" -Algorithm SHA256).Hash -ne '20dc34d5ae7396d4300bc9054d2618dfffcde28f03df4e935ce1951221b5079b') { throw 'Checksum không khớp' }; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'Cài đặt thất bại' } }
 ```
 
 Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut và tạo `%APPDATA%\LanBridge\config.json` nếu chưa có. Chạy shortcut, tìm icon Bridge trong khay hệ thống, chọn **Mở giao diện**. Khi Windows Firewall hỏi, cho phép trên mạng Private tin cậy. Cài lại giữ file config hiện có.
@@ -17,7 +17,7 @@ Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut 
 **Mac Apple Silicon:** Mở Terminal và chạy một lệnh:
 
 ```sh
-d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-0376a95a800f/testbridge-macos-arm64.zip' -o "$d/package.zip" && [ "$(shasum -a 256 "$d/package.zip" | cut -d ' ' -f 1)" = "31b4df55ea8d806267a1e21ab938a89998502e82731a5d0ecc87009ad4f3df93" ] && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
+d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-6c6b67f3a6c7/testbridge-macos-arm64.zip' -o "$d/package.zip" && [ "$(shasum -a 256 "$d/package.zip" | cut -d ' ' -f 1)" = "d14806fa5bd92dc87bbf198489edb6853484997faedf894ac814138bb1b9b018" ] && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
 ```
 
 Installer chép app vào `~/Applications/LAN Bridge.app`, chép lệnh `bridge` vào `~/.local/bin` và mở app. Chọn **Mở giao diện** từ icon trên thanh menu; cho phép Local Network nếu macOS hỏi. Nếu macOS chặn app chưa được ký, làm theo thông báo của hệ điều hành trước khi tiếp tục.
