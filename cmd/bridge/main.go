@@ -1631,6 +1631,14 @@ func runClient(args []string) {
 		})
 	}
 
+	if !*headless {
+		ui.InstallReopenHandler(func() {
+			if err := webUI.OpenBrowser(); err != nil {
+				slog.Error("Could not open Bridge UI on reopen")
+			}
+		})
+	}
+
 	var clientMu sync.Mutex
 	var activeClient *transport.Client
 	var activeTarget string
