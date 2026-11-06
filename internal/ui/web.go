@@ -279,6 +279,7 @@ func (ws *WebServer) NotifyMCPToolsChanged() {
 func (ws *WebServer) Start() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", ws.handleRoot)
+	mux.HandleFunc("/favicon.ico", ws.handleFavicon)
 	mux.HandleFunc("/events", ws.handleSSE)
 	mux.HandleFunc("/api/host/connect", ws.handleHostConnect)
 	mux.HandleFunc("/api/pair/generate", ws.handleGenerateCode)
@@ -1025,4 +1026,14 @@ func (ws *WebServer) handleProjectTools(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"tools": tools})
+}
+
+//go:embed icons/desktop.ico
+var faviconICO []byte
+
+// handleFavicon gives the --app browser window (taskbar/Alt-Tab) the app icon.
+func (ws *WebServer) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/x-icon")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(faviconICO)
 }

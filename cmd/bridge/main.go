@@ -749,7 +749,14 @@ func runHost(args []string) {
 	// inside the user-chosen scope folder (the LanBridge source directory).
 	if dir,err:=store.GetConfigDir();err==nil{
 		scopeFile:=filepath.Join(dir,"remote_scope.txt")
-		if b,err:=os.ReadFile(scopeFile);err==nil{webUI.SetRemoteScope(strings.TrimSpace(string(b)))}
+		scope:=""
+		if b,err:=os.ReadFile(scopeFile);err==nil{scope=strings.TrimSpace(string(b))}
+		if scope=="" {
+			// Default scope: the LanBridge install location itself, so the user
+			// never has to type it. A saved custom folder overrides this.
+			if exe,err:=os.Executable();err==nil{scope=filepath.Dir(exe)}
+		}
+		webUI.SetRemoteScope(scope)
 		webUI.SetRemoteScopeSaver(func(p string) error {return os.WriteFile(scopeFile,[]byte(p),0600)})
 	}
 	server.RegisterHandler(protocol.TypeRemoteConfig, func(msg *protocol.Message) (*protocol.Message,error) {
