@@ -215,6 +215,7 @@ func runHost(args []string) {
 	var execMgr *executor.Manager
 	var tray *ui.TrayManager
 	var stopMDNS func()
+	stopKeepAwake := func() {}
 	if !*headless {
 		tray = ui.NewTrayManager(func() {
 			if err := webUI.OpenBrowser(); err != nil {
@@ -225,6 +226,7 @@ func runHost(args []string) {
 			if stopMDNS != nil {
 				stopMDNS()
 			}
+			stopKeepAwake()
 			execMgr.CancelAll()
 			_ = server.Close()
 			_ = webUI.Close()
@@ -681,6 +683,7 @@ func runHost(args []string) {
 			if stopMDNS != nil {
 				stopMDNS()
 			}
+			stopKeepAwake()
 			execMgr.CancelAll()
 			if id:=hostSession.Snapshot().WindowsID;id!="" && mcpMgr!=nil{mcpMgr.CloseProject(id)}
 			_ = server.Close()
@@ -1050,6 +1053,8 @@ func runHost(args []string) {
 		stopMDNS = mdnsServer.Shutdown
 	}
 	webUI.Start()
+	// Keep the host awake so the Mac can keep using it while the display is off.
+	stopKeepAwake = startHostKeepAwake()
 
 	fmt.Printf("[LAN Bridge Host] Listening on port %d\n", listenPort)
 	fmt.Printf("[LAN Bridge Host] Web UI: %s\n", webUI.URL())
