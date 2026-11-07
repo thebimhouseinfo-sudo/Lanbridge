@@ -9,8 +9,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// windowsLockOffset is far beyond the holder record. Windows locks are
+// mandatory, so locking the record itself would stop other handles from
+// reading which process holds the lock.
+const windowsLockOffset = 1 << 30
+
 func acquireFileLock(file *os.File) (func() error, error) {
-	var overlapped windows.Overlapped
+	overlapped := windows.Overlapped{Offset: windowsLockOffset}
 	err := windows.LockFileEx(
 		windows.Handle(file.Fd()),
 		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,

@@ -47,34 +47,41 @@ func TestHostLocatorFindsPairedHostAtNewAddress(t *testing.T) {
 
 	var searching atomic.Bool
 	var clientMu sync.Mutex
-	connected := make(chan string, 1)
+	type connection struct {
+		address       string
+		searchingWhen bool
+	}
+	connected := make(chan connection, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go runHostLocator(hostLocatorDeps{
-		ctx:             ctx,
-		clientMu:        &clientMu,
-		activeClient:    func() *transport.Client { return nil },
-		activeTarget:    func() string { return lastKnown },
-		fingerprint:     func() string { return hostCert.Fingerprint },
-		certPair:        clientCert,
-		searching:       &searching,
-		connect:         func(address string) { connected <- address },
+		ctx:          ctx,
+		clientMu:     &clientMu,
+		activeClient: func() *transport.Client { return nil },
+		activeTarget: func() string { return lastKnown },
+		fingerprint:  func() string { return hostCert.Fingerprint },
+		certPair:     clientCert,
+		searching:    &searching,
+		connect: func(address string) {
+			connected <- connection{address: address, searchingWhen: searching.Load()}
+		},
 		probeInterval:   10 * time.Millisecond,
 		probeTimeout:    time.Second,
 		probeConcurrent: 16,
 	})
 
 	select {
-	case address := <-connected:
-		if address != hostAddr.String() {
-			t.Fatalf("connected to %s, want %s", address, hostAddr.String())
+	case got := <-connected:
+		if got.address != hostAddr.String() {
+			t.Fatalf("connected to %s, want %s", got.address, hostAddr.String())
+		}
+		// Checked inside connect, so a later scan cannot change the answer.
+		if got.searchingWhen {
+			t.Fatal("searching flag must be cleared before connecting")
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("locator did not reconnect to the moved host")
-	}
-	if searching.Load() {
-		t.Fatal("searching flag must be cleared after a successful search")
 	}
 }
 
