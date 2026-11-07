@@ -29,3 +29,12 @@ func acquireFileLock(file *os.File) (func() error, error) {
 		return windows.UnlockFileEx(windows.Handle(file.Fd()), 0, 1, 0, &overlapped)
 	}, nil
 }
+
+func processAlive(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	_ = process.Release()
+	return true
+}

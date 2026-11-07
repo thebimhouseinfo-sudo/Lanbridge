@@ -58,6 +58,8 @@ func main() {
 		runClient(os.Args[2:])
 	case "mcp":
 		runMCP(os.Args[2:])
+	case "doctor":
+		os.Exit(runDoctor(os.Stdout))
 	case "ui":
 		runUI()
 	case "version", "-v", "--version":
@@ -88,6 +90,7 @@ Commands:
   host      Run on Windows to host commands, MCP forwarding, and file operations
   client    Run on macOS to pair and coordinate with the Windows host
   mcp       Run on macOS as a stdio MCP server for Claude Code or Codex
+  doctor    Check each step of the Mac <-> Windows chain and print the fix for any failure
   ui        Open the control panel of the running Mac client
   version   Show version information
   help      Show this help message
@@ -230,7 +233,9 @@ func runHost(args []string) {
 	}
 
 	// M3: Wire executor (run_command / exec_start, exec_result)
-	execMgr = executor.NewManager()
+	// Finished jobs are saved under <config>/jobs so a command result stays
+	// readable after the host or the agent session restarts.
+	execMgr = newHostJobManager()
 	execMgr.SetStateChangeHandler(func() {
 		running := execMgr.HasRunning()
 		webUI.UpdateState(func(s *ui.UIState) {
@@ -684,10 +689,12 @@ func runHost(args []string) {
 		}
 	})
 
+	permissionNotifier := ui.NewNotifier()
 	server.RegisterHandler(protocol.TypePermissionReq, func(msg *protocol.Message) (*protocol.Message, error) {
 		var req struct {
 			Path         string   `json:"path"`
 			Capabilities []string `json:"capabilities"`
+			ProjectID    string   `json:"project_id"`
 		}
 		if err := json.Unmarshal(msg.Payload, &req); err != nil {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PARAMS", err.Error()), nil
@@ -696,6 +703,14 @@ func runHost(args []string) {
 			return protocol.NewErrorResponse(msg.ID, "ERR_PERMISSION_REQUEST", err.Error()), nil
 		}
 		updatePermissionUI()
+		// Tell the Windows user even when the LAN Bridge window is closed. The toast
+		// runs in the background so it never delays the approval wait below.
+		go func(capabilities []string, path string) {
+			if _, notifyErr := permissionNotifier.Notify("LAN Bridge: yêu cầu quyền mới",
+				fmt.Sprintf("Mac muốn quyền %s cho: %s. Mở LAN Bridge để duyệt.", strings.Join(capabilities, ", "), path)); notifyErr != nil {
+				slog.Warn("Could not show Windows notification for permission request", "error", notifyErr)
+			}
+		}(req.Capabilities, req.Path)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -712,10 +727,19 @@ func runHost(args []string) {
 				"approved": false,
 			})
 		}
-		return protocol.NewResponse(msg.ID, protocol.TypePermissionRes, map[string]any{
-			"approved":     true,
-			"capabilities": capabilities,
-		})
+		// Approval is the Windows user's consent: create/open the project now so
+		// the Mac does not need a second Windows step. Failure is reported, not hidden.
+		response := map[string]any{"approved": true, "capabilities": capabilities}
+		if req.ProjectID != "" {
+			created, openErr := webUI.EnsureProjectOpen(req.ProjectID)
+			response["project_id"] = req.ProjectID
+			response["project_created"] = created
+			response["project_open"] = openErr == nil
+			if openErr != nil {
+				response["project_error"] = openErr.Error()
+			}
+		}
+		return protocol.NewResponse(msg.ID, protocol.TypePermissionRes, response)
 	})
 	// The Mac reports only an ID after its local blacklist was really opened.
 	// No Windows permission JSON or Mac blacklist JSON ever crosses the LAN.
@@ -1570,6 +1594,8 @@ func runClient(args []string) {
 	if err!=nil{slog.Error("Failed to prepare Mac project configs","error",err);os.Exit(1)}
 	var pairedHostFingerprint atomic.Value
 	pairedHostFingerprint.Store(state.PairedPeerFingerprint)
+	// hostSearching is true while the client looks for a moved paired host.
+	var hostSearching atomic.Bool
 
 	target := strings.TrimSpace(*hostAddr)
 	if target == "" {
@@ -2019,20 +2045,20 @@ func runClient(args []string) {
 		webUI.AddChatMessage(confirmed)
 		return nil
 	})
-	webUI.SetAgentChatHandler(func(text string) error {
+	webUI.SetAgentChatHandler(func(text string) (string, error) {
 		clientMu.Lock()
 		client := activeClient
 		clientMu.Unlock()
 		if client == nil || !client.IsConnected() {
-			return errors.New("connect to the host before using agent chat")
+			return "", errors.New("connect to the host before using agent chat")
 		}
 		if pairedHostFingerprint.Load().(string) == "" {
-			return errors.New("pair with the host before using agent chat")
+			return "", errors.New("pair with the host before using agent chat")
 		}
 		message := ui.ChatMessage{Text: text, SenderKind: ui.ChatSenderMacAgent}
 		payload, err := json.Marshal(message)
 		if err != nil {
-			return fmt.Errorf("encode agent chat message: %w", err)
+			return "", fmt.Errorf("encode agent chat message: %w", err)
 		}
 		response, err := client.RoundTrip(&protocol.Message{
 			ID:      fmt.Sprintf("agent-chat-%d", time.Now().UnixNano()),
@@ -2040,20 +2066,20 @@ func runClient(args []string) {
 			Payload: payload,
 		}, 15*time.Second)
 		if err != nil {
-			return fmt.Errorf("agent chat delivery status is unknown: %w", err)
+			return "", fmt.Errorf("agent chat delivery status is unknown: %w", err)
 		}
 		if response.Error != nil {
-			return response.Error
+			return "", response.Error
 		}
 		if response.Type != protocol.TypeChat {
-			return fmt.Errorf("unexpected agent chat response type %q", response.Type)
+			return "", fmt.Errorf("unexpected agent chat response type %q", response.Type)
 		}
 		var confirmed ui.ChatMessage
 		if err := json.Unmarshal(response.Payload, &confirmed); err != nil {
-			return fmt.Errorf("decode agent chat confirmation: %w", err)
+			return "", fmt.Errorf("decode agent chat confirmation: %w", err)
 		}
-		webUI.AddChatMessage(confirmed)
-		return nil
+		stored := webUI.AddChatMessage(confirmed)
+		return stored.ID, nil
 	})
 	webUI.SetMCPProviderHandler(func(ctx context.Context, provider string) ([]ui.MCPProviderState, error) {
 		if agentConfigManager == nil {
@@ -2128,13 +2154,11 @@ func runClient(args []string) {
 		clientMu.Unlock()
 		if toolName == "bridge_status" {
 			id,_,ready:=getMacProfile()
-			return map[string]any{
-				"connected": client != nil && client.IsConnected(),
-				"host":      address,
-				"paired":    pairedHostFingerprint.Load().(string) != "",
-				"project_id":id,
-				"project_ready":ready,
-			}, nil
+			return buildBridgeStatus(Version,
+				pairedHostFingerprint.Load().(string) != "",
+				client != nil && client.IsConnected(),
+				hostSearching.Load(),
+				address, id, ready), nil
 		}
 		// Local agent Config tools have no Windows file-system access.
 		// Open is read-only: only the Mac app Setup can create empty files.
@@ -2261,6 +2285,19 @@ func runClient(args []string) {
 	if target != "" {
 		connectTarget(target)
 	}
+	go runHostLocator(hostLocatorDeps{
+		ctx:             context.Background(),
+		clientMu:        &clientMu,
+		activeClient:    func() *transport.Client { return activeClient },
+		activeTarget:    func() string { return activeTarget },
+		fingerprint:     func() string { return pairedHostFingerprint.Load().(string) },
+		certPair:        certPair,
+		searching:       &hostSearching,
+		connect:         connectTarget,
+		probeInterval:   hostLocatorInterval,
+		probeTimeout:    800 * time.Millisecond,
+		probeConcurrent: 64,
+	})
 	if *hostAddr == "" {
 		go func() {
 			err := transport.BrowseHosts(discoveryCtx, func(address, hostname string) {
@@ -2386,16 +2423,31 @@ func runMCPWithLock(
 ) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(errorOutput)
+	statusOnly := fs.Bool("status", false, "in trạng thái khóa MCP rồi thoát, không khởi động MCP")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse MCP flags: %w", err)
 	}
+	if *statusOnly {
+		return printMCPStatus(errorOutput)
+	}
 
+	if isOrphanedAtStart(os.Getppid()) {
+		err := errors.New("tiến trình cha đã kết thúc trước khi MCP khởi động (ppid 1)")
+		fmt.Fprintf(errorOutput, "[LAN Bridge MCP] Không thể khởi động: %v\n", err)
+		return err
+	}
 	lock, err := acquire()
 	if err != nil {
 		fmt.Fprintf(errorOutput, "[LAN Bridge MCP] Không thể khởi động: %v\n", err)
 		return err
 	}
 	fmt.Fprintln(errorOutput, "[LAN Bridge MCP] Stdio bridge starting for agent...")
+	stopWatchdog := watchParentGone(os.Getppid(), os.Getppid, mcpParentCheckInterval, func(initial, current int) {
+		fmt.Fprintf(errorOutput, "[LAN Bridge MCP] Tiến trình cha (pid %d) đã kết thúc (ppid hiện tại %d); tự thoát và giải phóng khóa.\n", initial, current)
+		_ = lock.Close()
+		os.Exit(0)
+	})
+	defer stopWatchdog()
 	server := agentmcp.NewStdioServer(input, output)
 	runErr := server.Run()
 	releaseErr := lock.Close()
@@ -2406,6 +2458,41 @@ func runMCPWithLock(
 		fmt.Fprintf(errorOutput, "[LAN Bridge MCP] Failed to release process lock: %v\n", releaseErr)
 	}
 	return errors.Join(runErr, releaseErr)
+}
+
+// mcpParentCheckInterval is how often a running MCP process checks that its
+// parent (the Claude session that launched it) is still alive.
+const mcpParentCheckInterval = 2 * time.Second
+
+// isOrphanedAtStart reports whether the MCP process was already re-parented to
+// init when it started, which means the Claude session that launched it is gone.
+// Windows does not re-parent orphans, so it is never treated as orphaned here.
+func isOrphanedAtStart(ppid int) bool {
+	return runtime.GOOS != "windows" && ppid == 1
+}
+
+func printMCPStatus(out io.Writer) error {
+	status, err := agentlock.StatusDefault()
+	if err != nil {
+		fmt.Fprintf(out, "[LAN Bridge MCP] Không kiểm tra được khóa: %v\n", err)
+		return err
+	}
+	if !status.Busy {
+		fmt.Fprintln(out, "[LAN Bridge MCP] Khóa rảnh: không có tiến trình MCP nào đang chạy.")
+		return nil
+	}
+	holder := status.Holder
+	if holder.PID == 0 {
+		fmt.Fprintln(out, "[LAN Bridge MCP] Khóa đang bị giữ nhưng không xác định được pid (khóa được tạo bởi bản cũ).")
+		return nil
+	}
+	alive := agentlock.ProcessAlive(holder.PID)
+	fmt.Fprintf(out, "[LAN Bridge MCP] Đang bị giữ bởi pid %d (bắt đầu %s, cha pid %d), tiến trình còn sống: %t.\n",
+		holder.PID, holder.StartedAt.Format(time.RFC3339), holder.PPID, alive)
+	if alive {
+		fmt.Fprintf(out, "Để dừng: kill %d\n", holder.PID)
+	}
+	return nil
 }
 
 func toUIAgentConfigStates(snapshot agentconfig.Snapshot) []ui.MCPProviderState {
@@ -2454,4 +2541,25 @@ func mcpGrantedDirectory(grants []store.PermissionGrant, command []string) (stri
   if dir,err:=defaultGrantedDirectory(matching,permissions.CapMCP);err==nil{return dir,nil}
  }
  return defaultGrantedDirectory(grants,permissions.CapMCP)
+}
+
+// newHostJobManager returns a job manager backed by the on-disk job store. A job
+// that was still running when the previous host stopped is marked interrupted.
+func newHostJobManager() *executor.Manager {
+	dir, err := store.GetConfigDir()
+	if err != nil {
+		slog.Error("Job history unavailable; command results will not survive a restart", "error", err)
+		return executor.NewManager()
+	}
+	jobs, err := executor.NewJobStore(filepath.Join(dir, "jobs"))
+	if err != nil {
+		slog.Error("Job history unavailable; command results will not survive a restart", "error", err)
+		return executor.NewManager()
+	}
+	if n, err := jobs.MarkInterrupted(); err != nil {
+		slog.Warn("Could not mark interrupted jobs", "error", err)
+	} else if n > 0 {
+		slog.Info("Marked jobs from the previous host run as interrupted", "count", n)
+	}
+	return executor.NewManagerWithStore(jobs)
 }

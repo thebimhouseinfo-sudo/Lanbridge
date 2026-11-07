@@ -10,8 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
-	"strings"
+	"strconv"
 	"sync"
 	"time"
 
@@ -210,11 +211,18 @@ type Manager struct {
 	jobs          map[string]*Job // project name → latest job
 	seq           uint64
 	onStateChange func()
+	store         *JobStore // optional: finished jobs survive restarts
 }
 
-// NewManager creates an empty Manager.
+// NewManager creates an empty Manager with no on-disk job history.
 func NewManager() *Manager {
 	return &Manager{jobs: make(map[string]*Job)}
+}
+
+// NewManagerWithStore creates a Manager that saves finished jobs to store and
+// can read them back after a restart.
+func NewManagerWithStore(store *JobStore) *Manager {
+	return &Manager{jobs: make(map[string]*Job), store: store}
 }
 
 func (m *Manager) SetStateChangeHandler(handler func()) {
@@ -277,7 +285,10 @@ func (m *Manager) runArgv(proj *store.ProjectConfig, commandID string, argv []st
 	}
 
 	m.seq++
-	jobID := fmt.Sprintf("%s-%d", proj.Name, m.seq)
+	// Time plus sequence keeps IDs unique across host restarts. The suffix has no
+	// dash, so it never collides with dashes in project names.
+	jobID := fmt.Sprintf("%s-%s%s", proj.Name,
+		strconv.FormatInt(time.Now().UnixNano(), 36), strconv.FormatUint(m.seq, 36))
 	timeoutMin := proj.CommandTimeoutMin
 	if timeoutMin <= 0 {
 		timeoutMin = 30
@@ -343,6 +354,11 @@ func (m *Manager) runArgv(proj *store.ProjectConfig, commandID string, argv []st
 			}
 		}
 		job.setResult(status, exitCode)
+		if m.store != nil {
+			if err := m.store.Save(job); err != nil {
+				slog.Error("Could not save finished job; its output is only available until the host restarts", "job", job.ID, "error", err)
+			}
+		}
 		m.notifyStateChange()
 	}()
 
@@ -358,21 +374,25 @@ func supportedCommandID(commandID string) bool {
 	}
 }
 
-// GetJob retrieves the current job for a project by job ID.
+// GetJob returns a job by ID: the in-memory job when it is the latest for its
+// project, otherwise the saved job from disk. It returns nil when neither exists.
 func (m *Manager) GetJob(jobID string) *Job {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	// jobID encodes project name as prefix before the last dash+number
-	parts := strings.LastIndex(jobID, "-")
-	if parts < 0 {
+	for _, j := range m.jobs {
+		if j.ID == jobID {
+			m.mu.Unlock()
+			return j
+		}
+	}
+	m.mu.Unlock()
+	if m.store == nil {
 		return nil
 	}
-	projName := jobID[:parts]
-	j := m.jobs[projName]
-	if j != nil && j.ID == jobID {
-		return j
+	job, err := m.store.Load(jobID)
+	if err != nil {
+		return nil
 	}
-	return nil
+	return job
 }
 
 // CancelAll cancels all running jobs (called on graceful shutdown).

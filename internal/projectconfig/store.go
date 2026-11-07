@@ -20,6 +20,9 @@ var (
  ErrLocked = errors.New("CONFIG_LOCKED")
  ErrNotOpen = errors.New("CONFIG_NOT_OPEN")
  ErrMismatch = errors.New("CONFIG_MISMATCH")
+ // ErrAlreadyExists means a profile with this ID is already on disk. Callers
+ // that want "create if missing" treat it as success (idempotent create).
+ ErrAlreadyExists = errors.New("CONFIG_ALREADY_EXISTS")
  validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 )
 
@@ -144,7 +147,7 @@ func (s *Store) InitializeWindows(id string, p WindowsPermissions) (bool,error) 
  if err=os.MkdirAll(filepath.Dir(path),0700);err!=nil{return false,err}
  data,err:=json.MarshalIndent(p,"","  ");if err!=nil{return false,err}
  file,err:=os.OpenFile(path,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
- if errors.Is(err,os.ErrExist){return false,fmt.Errorf("CONFIG_ALREADY_EXISTS: use Save on existing profile")}
+ if errors.Is(err,os.ErrExist){return false,fmt.Errorf("%w: use Save on existing profile",ErrAlreadyExists)}
  if err!=nil{return false,err}
  if _,err=file.Write(append(data,'\n'));err!=nil {_=file.Close();_=os.Remove(path);return false,err}
  if err=file.Sync();err!=nil {_=file.Close();_=os.Remove(path);return false,err}

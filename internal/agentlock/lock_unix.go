@@ -20,3 +20,8 @@ func acquireFileLock(file *os.File) (func() error, error) {
 		return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 	}, nil
 }
+
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}

@@ -36,7 +36,7 @@ func (s *Store) copyProfile(oldID,newID string,mac bool) error {
  }
  if err:=os.MkdirAll(filepath.Dir(dst),0700);err!=nil{return err}
  file,err:=os.OpenFile(dst,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
- if errors.Is(err,os.ErrExist){return fmt.Errorf("CONFIG_ALREADY_EXISTS: %s",newID)}
+ if errors.Is(err,os.ErrExist){return fmt.Errorf("%w: %s",ErrAlreadyExists,newID)}
  if err!=nil{return err}
  if _,err=file.Write(append(data,'\n'));err!=nil{_ = file.Close();_ = os.Remove(dst);return err}
  if err=file.Sync();err!=nil{_ = file.Close();_ = os.Remove(dst);return err}

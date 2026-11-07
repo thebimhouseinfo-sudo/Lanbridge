@@ -94,3 +94,44 @@ func TestLockCloseIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBusyLockReportsHolderAndStatus(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "mcp.lock")
+	held, err := AcquireAt(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+
+	_, err = AcquireAt(lockPath)
+	var busy *BusyError
+	if !errors.As(err, &busy) {
+		t.Fatalf("second AcquireAt error = %v, want *BusyError", err)
+	}
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("BusyError must unwrap to ErrBusy")
+	}
+	if busy.Holder.PID != os.Getpid() {
+		t.Fatalf("holder pid = %d, want %d", busy.Holder.PID, os.Getpid())
+	}
+	if !ProcessAlive(busy.Holder.PID) {
+		t.Fatal("current process should be reported alive")
+	}
+
+	status, err := StatusAt(lockPath)
+	if err != nil || !status.Busy || status.Holder.PID != os.Getpid() {
+		t.Fatalf("StatusAt while held = %+v, %v", status, err)
+	}
+
+	if err := held.Close(); err != nil {
+		t.Fatal(err)
+	}
+	status, err = StatusAt(lockPath)
+	if err != nil || status.Busy {
+		t.Fatalf("StatusAt after release = %+v, %v; want free", status, err)
+	}
+	data, _ := os.ReadFile(lockPath)
+	if len(data) != 0 {
+		t.Fatalf("holder record not cleared on release: %q", data)
+	}
+}

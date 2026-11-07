@@ -47,8 +47,8 @@ func TestMCPInitializeAndToolsList(t *testing.T) {
 	}
 
 	rawTools, ok := resMap["tools"].([]any)
-	if !ok || len(rawTools) != 14 {
-		t.Fatalf("Expected 14 tools including windows_config, got %d", len(rawTools))
+	if !ok || len(rawTools) != 15 {
+		t.Fatalf("Expected 15 tools including windows_config and chat_read, got %d", len(rawTools))
 	}
 
 	expectedNames := map[string]bool{
@@ -61,6 +61,7 @@ func TestMCPInitializeAndToolsList(t *testing.T) {
 		"run_command":    true,
 		"command_result": true,
 		"chat_send":      true,
+		"chat_read":      true,
 		"config_list":    true,
 		"config_current": true,
 		"config_load":    true,
@@ -140,7 +141,8 @@ func TestAgentChatSendUsesSharedBridgeChat(t *testing.T) {
 			return
 		}
 		received = body.Text
-		w.WriteHeader(http.StatusNoContent)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"message_id": "msg-from-bridge"})
 	}))
 	defer httpServer.Close()
 	_, portText, err := net.SplitHostPort(httpServer.Listener.Addr().String())
@@ -177,6 +179,10 @@ func TestAgentChatSendUsesSharedBridgeChat(t *testing.T) {
 	}
 	if received != "Please run this on Windows:\nWrite-Host 'ready'" {
 		t.Fatalf("Bridge received %q", received)
+	}
+	structured, _ := result["structuredContent"].(map[string]any)
+	if structured["message_id"] != "msg-from-bridge" {
+		t.Fatalf("chat_send must return the Bridge message_id, got %v", result["structuredContent"])
 	}
 	if got := <-activityStatuses; got != "running" {
 		t.Fatalf("initial activity status = %q, want running", got)
@@ -301,12 +307,12 @@ func TestMCPToolsListIncludesProjectTools(t *testing.T) {
 		t.Fatalf("tools/list result = %#v", response.Result)
 	}
 	tools, ok := result["tools"].([]any)
-	if !ok || len(tools) != 15 {
-		t.Fatalf("tools/list returned %d tools, want 15 (14 builtins + 1 project)", len(tools))
+	if !ok || len(tools) != 16 {
+		t.Fatalf("tools/list returned %d tools, want 16 (15 builtins + 1 project)", len(tools))
 	}
-	lastTool, ok := tools[14].(map[string]any)
+	lastTool, ok := tools[15].(map[string]any)
 	if !ok || lastTool["name"] != "CAI__draw_line" {
-		t.Fatalf("project tool missing from tools/list: %#v", tools[14])
+		t.Fatalf("project tool missing from tools/list: %#v", tools[15])
 	}
 }
 
