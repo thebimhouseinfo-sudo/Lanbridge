@@ -4,12 +4,12 @@ Bridge kết nối máy Mac Apple Silicon với máy Windows 10/11 trên cùng m
 
 ## Cài bản thử qua shell
 
-Hai lệnh dưới đây cài cùng bản thử **test-6c6b67f3a6c7** đã qua CI, kiểm tra SHA-256 trước khi giải nén và giữ cấu hình hiện có. Cần Internet. Thoát LAN Bridge và phiên MCP trên cả hai máy trước khi cài. Nghiệm thu máy thật vẫn chờ thực hiện.
+Hai lệnh dưới đây cài cùng bản thử **test-ed80b5027315** đã qua CI, kiểm tra SHA-256 trước khi giải nén và giữ cấu hình hiện có. Cần Internet. Thoát LAN Bridge và phiên MCP trên cả hai máy trước khi cài. Nghiệm thu máy thật vẫn chờ thực hiện.
 
 **Windows 10/11 x64:** Mở PowerShell và chạy một lệnh:
 
 ```powershell
-& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest -UseBasicParsing 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-6c6b67f3a6c7/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; if ((Get-FileHash "$d\package.zip" -Algorithm SHA256).Hash -ne '20dc34d5ae7396d4300bc9054d2618dfffcde28f03df4e935ce1951221b5079b') { throw 'Checksum không khớp' }; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'Cài đặt thất bại' } }
+& { $ErrorActionPreference = 'Stop'; $d = Join-Path $env:TEMP ([guid]::NewGuid().ToString()); New-Item -ItemType Directory -Path $d | Out-Null; Invoke-WebRequest -UseBasicParsing 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-ed80b5027315/testbridge-windows-amd64.zip' -OutFile "$d\package.zip"; if ((Get-FileHash "$d\package.zip" -Algorithm SHA256).Hash -ne '1bfeb2590e3a97ae61c2b261ad85f7ef037e2d26ee2ee0f4f6ab60b160459c0e') { throw 'Checksum không khớp' }; Expand-Archive "$d\package.zip" -DestinationPath $d; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'Cài đặt thất bại' } }
 ```
 
 Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut và tạo `%APPDATA%\LanBridge\config.json` nếu chưa có. Chạy shortcut, tìm icon Bridge trong khay hệ thống, chọn **Mở giao diện**. Khi Windows Firewall hỏi, cho phép trên mạng Private tin cậy. Cài lại giữ file config hiện có.
@@ -17,7 +17,7 @@ Installer chép chương trình vào `%LOCALAPPDATA%\LanBridge`, tạo shortcut 
 **Mac Apple Silicon:** Mở Terminal và chạy một lệnh:
 
 ```sh
-d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-6c6b67f3a6c7/testbridge-macos-arm64.zip' -o "$d/package.zip" && [ "$(shasum -a 256 "$d/package.zip" | cut -d ' ' -f 1)" = "d14806fa5bd92dc87bbf198489edb6853484997faedf894ac814138bb1b9b018" ] && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
+d="$(mktemp -d)" && curl -fL 'https://github.com/thebimhouseinfo-sudo/Lanbridge/releases/download/test-ed80b5027315/testbridge-macos-arm64.zip' -o "$d/package.zip" && [ "$(shasum -a 256 "$d/package.zip" | cut -d ' ' -f 1)" = "85e0834c20eff21c14b94b6a86a36a24214cd72dc26e89380706d8a248286356" ] && ditto -x -k "$d/package.zip" "$d" && sh "$d/mac/install.sh"
 ```
 
 Installer chép app vào `~/Applications/LAN Bridge.app`, chép lệnh `bridge` vào `~/.local/bin` và mở app. Chọn **Mở giao diện** từ icon trên thanh menu; cho phép Local Network nếu macOS hỏi. Nếu macOS chặn app chưa được ký, làm theo thông báo của hệ điều hành trước khi tiếp tục.
@@ -50,9 +50,9 @@ Trên Windows, mục **Cho phép Mac tự cấu hình**: chọn thư mục sourc
 - Cấu hình lệnh và MCP thực của project, kiểm tra build/test, output và chuyển tiếp tool; kiểm tra Start/Stop ứng dụng chỉ khi đã cấp quyền.
 - Thử Codex/Claude registration, agent gửi chat, mất/kết nối lại, thoát khi có tác vụ và mức CPU/RAM nhàn rỗi. Ghi rõ PASS/FAIL và log; không coi CI thay cho kiểm thử hai máy.
 
-## Kiểm tra nhanh và thay đổi mới (nhánh `fix/cadgpt-field-review-a-f`)
+## Kiểm tra nhanh và thay đổi mới
 
-Các lệnh này nằm trong nhánh chưa merge. Lệnh cài ở trên vẫn là bản đã phát hành cho đến khi có bản mới từ `main`.
+Các lệnh này có trong bản `test-ed80b5027315` (merge từ PR #2).
 
 - **`bridge doctor`** (trên Mac): kiểm tra thư mục trạng thái, khóa MCP, LAN Bridge đang mở, kết nối nội bộ, ghép nối, kết nối tới Windows và project. Mỗi bước FAIL có một gợi ý sửa; thoát với mã khác 0 nếu có lỗi.
 - **`bridge mcp --status`** (trên Mac): cho biết phiên MCP nào đang giữ khóa và pid đó còn sống không. Nếu một phiên Claude cũ còn giữ khóa, lệnh in sẵn `kill <pid>`; Bridge không tự kill tiến trình khác.
