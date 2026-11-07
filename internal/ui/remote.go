@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/thebimhouseinfo-sudo/testbridge/internal/projectconfig"
 )
 
 // RemoteConfigRequest is the Mac agent's request to configure the Windows
@@ -112,10 +114,11 @@ func (ws *WebServer) HandleRemoteConfig(req RemoteConfigRequest) (any, error) {
 		if err := need(ws.onProjectSetup, "setup"); err != nil {
 			return nil, err
 		}
-		if err := ws.onProjectSetup(req.ProjectID, "", ""); err != nil {
+		created, err := createProjectIfMissing(ws.onProjectSetup, req.ProjectID)
+		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"created": req.ProjectID}, nil
+		return map[string]any{"project_id": req.ProjectID, "created": created, "already_exists": !created}, nil
 	case "open_project":
 		if err := need(ws.onProjectOpen, "open"); err != nil {
 			return nil, err
@@ -193,16 +196,8 @@ func (ws *WebServer) HandleRemoteConfig(req RemoteConfigRequest) (any, error) {
 				return nil, errors.New("bridge chưa sẵn sàng")
 			}
 		}
-		exists := false
-		ws.stateMu.RLock()
-		for _, id := range ws.state.ProjectConfigs {
-			exists = exists || id == req.ProjectID
-		}
-		ws.stateMu.RUnlock()
-		if !exists {
-			if err := ws.onProjectSetup(req.ProjectID, "", ""); err != nil {
-				return nil, err
-			}
+		if _, err := createProjectIfMissing(ws.onProjectSetup, req.ProjectID); err != nil {
+			return nil, err
 		}
 		if err := ws.onProjectOpen(req.ProjectID); err != nil {
 			return nil, err
@@ -276,4 +271,40 @@ func (ws *WebServer) handleRemoteToggle(w http.ResponseWriter, r *http.Request) 
 		ws.UpdateState(func(s *UIState) { s.RemoteConfig = *body.Enabled })
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// createProjectIfMissing creates the Windows project profile. It reports whether
+// a new profile was created. An existing profile is success, not an error.
+func createProjectIfMissing(setup func(id, workspace, mcpCommand string) error, id string) (bool, error) {
+	if setup == nil {
+		return false, errors.New("setup chưa sẵn sàng")
+	}
+	err := setup(id, "", "")
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, projectconfig.ErrAlreadyExists) {
+		return false, nil
+	}
+	return false, err
+}
+
+// EnsureProjectOpen makes a Windows project usable right after the Windows user
+// approves a request for it: it creates the profile if missing, then opens it.
+// It is idempotent, so approving twice (or for an existing project) is safe.
+func (ws *WebServer) EnsureProjectOpen(id string) (created bool, err error) {
+	if id == "" {
+		return false, nil
+	}
+	created, err = createProjectIfMissing(ws.onProjectSetup, id)
+	if err != nil {
+		return false, err
+	}
+	if ws.onProjectOpen == nil {
+		return created, errors.New("project open unavailable")
+	}
+	if err := ws.onProjectOpen(id); err != nil {
+		return created, err
+	}
+	return created, nil
 }

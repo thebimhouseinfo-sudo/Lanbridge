@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,9 @@ var embedFS embed.FS
 
 // UIState represents the real-time state broadcast to Web UI via SSE
 type UIState struct {
+	// chatSeq numbers chat messages for the agent inbox cursor. It never resets
+	// while the process runs, so a cursor stays valid after the list is cleared.
+	chatSeq            uint64
 	Role               string                  `json:"role"`
 	ProjectID          string                  `json:"project_id,omitempty"`
 	ProjectReady       bool                    `json:"project_ready"`
@@ -69,6 +73,8 @@ type ProjectInfo struct {
 }
 
 type ChatMessage struct {
+	ID         string    `json:"id,omitempty"`
+	Seq        int64     `json:"seq,omitempty"`
 	From       string    `json:"from"`
 	Text       string    `json:"text"`
 	SentAt     time.Time `json:"sent_at"`
@@ -126,7 +132,7 @@ type WebServer struct {
 	onAppRemove         func(id string) error
 	onAppCaps           func(id string,start,stop bool) error
 	onChatSend          func(text string) error
-	onAgentChatSend     func(text string) error
+	onAgentChatSend     func(text string) (string, error)
 	onMCPProviderChange func(context.Context, string) ([]MCPProviderState, error)
 	// M3: MCP tool forwarding (set by bridge client)
 	onMCPForward       func(toolName string, args map[string]any) (any, error)
@@ -238,7 +244,8 @@ func (ws *WebServer) SetChatHandler(onSend func(text string) error) {
 	ws.onChatSend = onSend
 }
 
-func (ws *WebServer) SetAgentChatHandler(onSend func(text string) error) {
+// SetAgentChatHandler sends an agent message and returns the stored message ID.
+func (ws *WebServer) SetAgentChatHandler(onSend func(text string) (string, error)) {
 	ws.onAgentChatSend = onSend
 }
 
@@ -246,10 +253,51 @@ func (ws *WebServer) SetMCPProviderHandler(onChange func(context.Context, string
 	ws.onMCPProviderChange = onChange
 }
 
-func (ws *WebServer) AddChatMessage(message ChatMessage) {
+// AddChatMessage stores a chat message with a unique ID and sequence number and
+// returns the stored copy. Agents use the ID and the sequence as a cursor.
+func (ws *WebServer) AddChatMessage(message ChatMessage) ChatMessage {
+	var stored ChatMessage
 	ws.UpdateState(func(state *UIState) {
+		state.chatSeq++
+		message.Seq = int64(state.chatSeq)
+		if message.ID == "" {
+			message.ID = newChatMessageID()
+		}
 		state.ChatMessages = append(state.ChatMessages, message)
+		stored = message
 	})
+	return stored
+}
+
+func newChatMessageID() string {
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("msg-%d", time.Now().UnixNano())
+	}
+	return "msg-" + hex.EncodeToString(raw[:])
+}
+
+// ChatInbox returns messages after the cursor that were not written by the Mac
+// agent, oldest first, and the cursor to pass next time.
+func (ws *WebServer) ChatInbox(after int64, limit int) ([]ChatMessage, int64) {
+	ws.stateMu.RLock()
+	defer ws.stateMu.RUnlock()
+	cursor := after
+	var out []ChatMessage
+	for _, message := range ws.state.ChatMessages {
+		if message.Seq <= after {
+			continue
+		}
+		cursor = message.Seq
+		if message.SenderKind == ChatSenderMacAgent {
+			continue
+		}
+		out = append(out, message)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, cursor
 }
 
 // SetMCPHandlers registers MCP forwarding callbacks used by the local bridge mcp process.
@@ -298,6 +346,7 @@ func (ws *WebServer) Start() {
 	mux.HandleFunc("/api/windows/pick", ws.handleWindowsPicker)
 	mux.HandleFunc("/api/chat/send", ws.handleChatSend)
 	mux.HandleFunc("/api/mcp/chat/send", ws.handleMCPChatSend)
+	mux.HandleFunc("/api/mcp/chat/read", ws.handleMCPChatRead)
 	mux.HandleFunc("/api/mcp/activity", ws.handleMCPActivity)
 	mux.HandleFunc("/api/mcp/provider", ws.handleMCPProvider)
 	// Local MCP forwarding endpoints (used by bridge mcp on the same Mac)
@@ -860,11 +909,46 @@ func (ws *WebServer) handleMCPChatSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := ws.onAgentChatSend(body.Text); err != nil {
+	messageID, err := ws.onAgentChatSend(body.Text)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"message_id": messageID})
+}
+
+// handleMCPChatRead returns the agent inbox: GET /api/mcp/chat/read?t=&after=&limit=
+func (ws *WebServer) handleMCPChatRead(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) || r.Method != http.MethodGet {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	query := r.URL.Query()
+	var after int64
+	if raw := query.Get("after"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			http.Error(w, "after must be a non-negative integer", http.StatusBadRequest)
+			return
+		}
+		after = parsed
+	}
+	limit := 20
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			http.Error(w, "limit must be between 1 and 100", http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
+	messages, cursor := ws.ChatInbox(after, limit)
+	if messages == nil {
+		messages = []ChatMessage{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"messages": messages, "next_cursor": cursor})
 }
 
 func (ws *WebServer) handleMCPActivity(w http.ResponseWriter, r *http.Request) {

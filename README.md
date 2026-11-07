@@ -50,6 +50,21 @@ Trên Windows, mục **Cho phép Mac tự cấu hình**: chọn thư mục sourc
 - Cấu hình lệnh và MCP thực của project, kiểm tra build/test, output và chuyển tiếp tool; kiểm tra Start/Stop ứng dụng chỉ khi đã cấp quyền.
 - Thử Codex/Claude registration, agent gửi chat, mất/kết nối lại, thoát khi có tác vụ và mức CPU/RAM nhàn rỗi. Ghi rõ PASS/FAIL và log; không coi CI thay cho kiểm thử hai máy.
 
+## Kiểm tra nhanh và thay đổi mới (nhánh `fix/cadgpt-field-review-a-f`)
+
+Các lệnh này nằm trong nhánh chưa merge. Lệnh cài ở trên vẫn là bản đã phát hành cho đến khi có bản mới từ `main`.
+
+- **`bridge doctor`** (trên Mac): kiểm tra thư mục trạng thái, khóa MCP, LAN Bridge đang mở, kết nối nội bộ, ghép nối, kết nối tới Windows và project. Mỗi bước FAIL có một gợi ý sửa; thoát với mã khác 0 nếu có lỗi.
+- **`bridge mcp --status`** (trên Mac): cho biết phiên MCP nào đang giữ khóa và pid đó còn sống không. Nếu một phiên Claude cũ còn giữ khóa, lệnh in sẵn `kill <pid>`; Bridge không tự kill tiến trình khác.
+- **Tự thoát khi mất phiên cha:** `bridge mcp` kiểm tra mỗi 2 giây và tự thoát, giải phóng khóa, khi Claude/Codex đã kết thúc.
+- **Tự tìm lại Windows khi đổi IP:** khi host đã ghép nối không kết nối được, Mac quét dải IP của địa chỉ cũ và chỉ kết nối tới máy có đúng chứng chỉ đã ghép nối. Trạng thái `searching` hiện trong `bridge_status` trong lúc quét.
+- **Lỗi có mã và bước sửa:** lỗi MCP trả `error_code` và `next_step` (ví dụ `BRIDGE_NOT_RUNNING`, `HOST_UNREACHABLE`, `OUTSIDE_SCOPE`, `CONFIG_NOT_OPEN`). Kết quả rỗng từ Windows được báo là `EMPTY_RESULT`, không trả rỗng.
+- **Project và approval:** `setup_project` và `bootstrap` coi project đã tồn tại là thành công. `request_access` có thể truyền `project_id`; khi Windows user duyệt, project được tạo nếu thiếu và mở ngay. Blacklist của Mac vẫn phải được load trước khi chạy lệnh.
+- **Job bền:** kết quả lệnh đã xong được lưu trong `%APPDATA%\LanBridge\jobs` (Windows); đọc lại được sau khi khởi động lại. Job đang chạy khi Bridge dừng được ghi là `interrupted`.
+- **Chat hai chiều:** `chat_send` trả `message_id`; tool `chat_read` đọc tin trả lời từ user theo `after=next_cursor`, không trả lại tin do agent gửi.
+- **Chống ngủ trên Windows:** khi Bridge host đang chạy, Windows không tự ngủ (màn hình vẫn có thể tắt). Hành vi này cần kiểm tra trên máy thật.
+- **Thông báo Windows:** khi Mac yêu cầu quyền mới, Windows hiện thông báo (tối đa một cái mỗi 10 giây), kể cả khi cửa sổ Bridge đang đóng.
+
 ## Build từ source
 
 Trên Mac có Go 1.22 và công cụ build native của Apple: `make dist-mac` tạo gói Mac; `make dist-windows` tạo gói Windows. Chạy `go test ./...` và `go vet ./...` để kiểm tra source. GitHub Actions cũng chạy test và build trên Windows và macOS ARM64. Thư viện mạng hiện tại chưa liên kết được với Go 1.23 trên macOS; dùng Go 1.22 cho bản thử này.

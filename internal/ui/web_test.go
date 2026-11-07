@@ -350,9 +350,9 @@ func TestAppAndChatEndpoints(t *testing.T) {
 		chatText <- text
 		return nil
 	})
-	ws.SetAgentChatHandler(func(text string) error {
+	ws.SetAgentChatHandler(func(text string) (string, error) {
 		agentChatText <- text
-		return nil
+		return "msg-test", nil
 	})
 	ws.Start()
 
@@ -406,7 +406,7 @@ func TestAppAndChatEndpoints(t *testing.T) {
 	}
 	response = post("/api/mcp/chat/send", `{"text":"Run this on Windows:\nWrite-Host 'ready'","sender_kind":"spoofed"}`, true)
 	response.Body.Close()
-	if response.StatusCode != http.StatusNoContent || <-agentChatText != "Run this on Windows:\nWrite-Host 'ready'" {
+	if response.StatusCode != http.StatusOK || <-agentChatText != "Run this on Windows:\nWrite-Host 'ready'" {
 		t.Fatalf("agent chat endpoint status=%d", response.StatusCode)
 	}
 	response = post("/api/mcp/activity", `{"label":"CAI · build","status":"running"}`, true)

@@ -327,6 +327,17 @@ func (s *StdioServer) handleToolsList(req *JSONRPCRequest) {
 			},
 		},
 		{
+			Name:        "chat_read",
+			Description: "Đọc tin nhắn mới từ user (Windows hoặc Mac) trong chat Bridge. Truyền after=next_cursor của lần trước (lần đầu: 0). Không trả lại tin nhắn do agent gửi.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"after": map[string]any{"type": "integer", "description": "Cursor: next_cursor của lần đọc trước, mặc định 0", "default": 0},
+					"limit": map[string]any{"type": "integer", "description": "Số tin tối đa (1-100), mặc định 20", "default": 20},
+				},
+			},
+		},
+		{
 			Name:        "request_access",
 			Description: "Yêu cầu Windows user cấp quyền đọc hoặc sync thư mục",
 			InputSchema: map[string]any{
@@ -338,6 +349,7 @@ func (s *StdioServer) handleToolsList(req *JSONRPCRequest) {
 						"items":       map[string]string{"type": "string"},
 						"description": "Các quyền yêu cầu (read, sync)",
 					},
+					"project_id": map[string]string{"type": "string", "description": "Project sẽ được tạo/mở trên Windows khi user duyệt (tùy chọn)"},
 				},
 				"required": []string{"path", "capabilities"},
 			},
@@ -459,7 +471,7 @@ func (s *StdioServer) handleToolsCall(req *JSONRPCRequest) {
 	}
 
 	switch callParams.Name {
-	case "bridge_status", "config_list", "config_current", "config_load", "blacklist_edit", "windows_config", "request_access", "list_dir", "file_info", "read_file", "sync_files", "run_command", "command_result", "chat_send":
+	case "bridge_status", "config_list", "config_current", "config_load", "blacklist_edit", "windows_config", "request_access", "list_dir", "file_info", "read_file", "sync_files", "run_command", "command_result", "chat_send", "chat_read":
 	default:
 		if !isProjectToolName(callParams.Name) {
 			s.sendToolError(req.ID, fmt.Sprintf("Tool %q is not available", callParams.Name))
@@ -479,6 +491,10 @@ func (s *StdioServer) handleToolsCall(req *JSONRPCRequest) {
 	// Intercept sync_files: read files locally on Mac before forwarding
 	if callParams.Name == "chat_send" {
 		s.handleAgentChatSend(req.ID, callParams.Arguments)
+		return
+	}
+	if callParams.Name == "chat_read" {
+		s.handleAgentChatRead(req.ID, callParams.Arguments)
 		return
 	}
 	if callParams.Name == "sync_files" {
@@ -504,42 +520,123 @@ func (s *StdioServer) handleAgentChatSend(reqID any, args map[string]any) {
 		s.sendToolError(reqID, err.Error())
 		return
 	}
-	if err := s.sendChatToBridge(text); err != nil {
+	messageID, err := s.sendChatToBridge(text)
+	if err != nil {
 		s.sendToolError(reqID, err.Error())
 		return
 	}
-	s.sendToolResult(reqID, "Tin nhắn đã được xác nhận trong chat Bridge.")
+	s.sendResult(reqID, map[string]any{
+		"content": []map[string]string{{"type": "text", "text": "Tin nhắn đã được xác nhận trong chat Bridge. message_id: " + messageID}},
+		"structuredContent": map[string]any{
+			"ok": true, "state": "sent", "message_id": messageID,
+			"next_step": "Dùng chat_read với after=<next_cursor> để đọc trả lời của user.",
+		},
+	})
 }
 
-func (s *StdioServer) sendChatToBridge(text string) error {
+// handleAgentChatRead returns inbox messages after the cursor. The cursor is the
+// sequence number returned as next_cursor by the previous call (0 to start).
+func (s *StdioServer) handleAgentChatRead(reqID any, args map[string]any) {
 	if s.auth == nil {
-		return errors.New("LAN Bridge auth information is unavailable")
+		s.sendToolError(reqID, "LAN Bridge auth information is unavailable")
+		return
+	}
+	after := int64(0)
+	if raw, exists := args["after"]; exists && raw != nil {
+		number, ok := raw.(float64)
+		if !ok || number < 0 || number != float64(int64(number)) {
+			s.sendToolError(reqID, "after must be a non-negative integer cursor")
+			return
+		}
+		after = int64(number)
+	}
+	limit := 20
+	if raw, exists := args["limit"]; exists && raw != nil {
+		number, ok := raw.(float64)
+		if !ok || number < 1 || number > 100 || number != float64(int(number)) {
+			s.sendToolError(reqID, "limit must be an integer between 1 and 100")
+			return
+		}
+		limit = int(number)
+	}
+	requestURL := fmt.Sprintf("http://127.0.0.1:%d/api/mcp/chat/read?t=%s&after=%d&limit=%d", s.auth.Port, s.auth.Token, after, limit)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		s.sendToolError(reqID, fmt.Sprintf("tạo yêu cầu đọc chat thất bại: %v", err))
+		return
+	}
+	response, err := s.httpClient.Do(request)
+	if err != nil {
+		s.sendToolError(reqID, fmt.Sprintf("LAN Bridge trên Mac chưa sẵn sàng: %v", err))
+		return
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		s.sendToolError(reqID, fmt.Sprintf("đọc phản hồi chat thất bại: %v", err))
+		return
+	}
+	if response.StatusCode != http.StatusOK {
+		s.sendToolError(reqID, fmt.Sprintf("chat_read trả HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body))))
+		return
+	}
+	var inbox struct {
+		Messages   []map[string]any `json:"messages"`
+		NextCursor int64            `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(body, &inbox); err != nil {
+		s.sendToolError(reqID, fmt.Sprintf("chat_read trả dữ liệu không hợp lệ: %v", err))
+		return
+	}
+	if inbox.Messages == nil {
+		inbox.Messages = []map[string]any{}
+	}
+	summary := fmt.Sprintf("%d tin nhắn mới. next_cursor=%d", len(inbox.Messages), inbox.NextCursor)
+	s.sendResult(reqID, map[string]any{
+		"content": []map[string]string{{"type": "text", "text": summary}},
+		"structuredContent": map[string]any{
+			"ok": true, "state": "ok", "messages": inbox.Messages, "next_cursor": inbox.NextCursor,
+		},
+	})
+}
+
+func (s *StdioServer) sendChatToBridge(text string) (string, error) {
+	if s.auth == nil {
+		return "", errors.New("LAN Bridge auth information is unavailable")
 	}
 	body, err := json.Marshal(map[string]string{"text": text})
 	if err != nil {
-		return fmt.Errorf("encode agent chat message: %w", err)
+		return "", fmt.Errorf("encode agent chat message: %w", err)
 	}
 	requestURL := fmt.Sprintf("http://127.0.0.1:%d/api/mcp/chat/send?t=%s", s.auth.Port, s.auth.Token)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create agent chat request: %w", err)
+		return "", fmt.Errorf("create agent chat request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := s.httpClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("chat delivery status is unknown; Bridge will not retry automatically: %w", err)
+		return "", fmt.Errorf("chat delivery status is unknown; Bridge will not retry automatically: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
 		if readErr != nil {
-			return fmt.Errorf("chat send failed with HTTP %d and response read error: %w", response.StatusCode, readErr)
+			return "", fmt.Errorf("chat send failed with HTTP %d and response read error: %w", response.StatusCode, readErr)
 		}
-		return fmt.Errorf("chat send failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+		return "", fmt.Errorf("chat send failed with HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
 	}
-	return nil
+	var confirmed struct {
+		MessageID string `json:"message_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&confirmed); err != nil {
+		return "", fmt.Errorf("chat was sent but Bridge returned no message_id: %w", err)
+	}
+	return confirmed.MessageID, nil
 }
 
 func (s *StdioServer) beginActivity(label string) {
@@ -733,7 +830,7 @@ func (s *StdioServer) forwardToBridgeClient(reqID any, toolName string, args map
 		s.sendToolError(reqID, err.Error())
 		return
 	}
-	s.sendResult(reqID, result)
+	s.sendResult(reqID, ensureNonEmptyResult(toolName, result))
 }
 
 func (s *StdioServer) callBridgeClient(toolName string, args map[string]any) (map[string]any, error) {
@@ -1200,13 +1297,8 @@ func (s *StdioServer) sendError(id any, code int, msg string) {
 
 func (s *StdioServer) sendToolError(id any, msg string) {
 	s.activityFailed = true
-	res := map[string]any{
-		"content": []map[string]string{
-			{"type": "text", "text": "LỖI: " + msg},
-		},
-		"isError": true,
-	}
-	s.sendResult(id, res)
+	code, _ := ClassifyError(msg)
+	s.sendResult(id, errorResult(msg, code))
 }
 
 func (s *StdioServer) sendToolResult(id any, text string) {
